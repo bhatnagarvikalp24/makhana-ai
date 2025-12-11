@@ -69,7 +69,8 @@ app.add_middleware(
 
 # --- 3. DATABASE MODELS (SQLAlchemy) ---
 # --- 3. DATABASE MODELS (UPDATED FOR COMMERCE) ---
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# CORRECT
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
