@@ -5,6 +5,7 @@ const API_BASE_URL = "https://makhana-ai.onrender.com";
 
 const api = axios.create({
     baseURL: API_BASE_URL,
+    timeout: 180000,
     headers: {
         'Content-Type': 'application/json',
     }

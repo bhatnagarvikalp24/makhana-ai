@@ -49,7 +49,12 @@ else:
     connect_args = {} # PostgreSQL does NOT need special args
 
 # 2. CREATE ENGINE (Run this AFTER variables are set)
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+engine = create_engine(
+    DATABASE_URL, 
+    connect_args=connect_args, 
+    pool_pre_ping=True,  # Checks if connection is alive before trying to run a query
+    pool_recycle=300     # Refreshes the connection every 5 minutes so it doesn't get cut
+)
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
