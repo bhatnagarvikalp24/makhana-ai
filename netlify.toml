@@ -1,0 +1,9 @@
+[build]
+  # This tells Netlify to go into the frontend folder first
+  base = "frontend"
+  
+  # This tells Netlify to build the React app
+  command = "npm run build"
+  
+  # This tells Netlify where the final files are (Relative to ROOT)
+  publish = "frontend/dist"
