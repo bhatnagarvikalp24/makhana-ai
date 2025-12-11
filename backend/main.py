@@ -31,19 +31,26 @@ load_dotenv()
 # Configuration
 # DATABASE CONFIGURATION
 # 1. Try to get the Cloud Database URL (from Render/Neon)
+# --- DATABASE CONFIGURATION (SMART SWITCH) ---
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# 2. If no Cloud DB, fallback to Local SQLite
+# 1. SETUP VARIABLES BASED ON ENVIRONMENT
 if not DATABASE_URL:
+    # Scenario A: Local Development (SQLite)
     print("⚠️  No Cloud DB found. Using Local SQLite.")
     DATABASE_URL = "sqlite:///./gharkadiet.db"
-    # CORRECT
-    engine = create_engine(DATABASE_URL, connect_args=connect_args)
+    connect_args = {"check_same_thread": False} # Required for SQLite
 else:
+    # Scenario B: Cloud Production (PostgreSQL)
     print("✅  Cloud DB Detected! Using PostgreSQL.")
+    # Fix for some cloud providers using 'postgres://' instead of 'postgresql://'
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    connect_args = {}
+    connect_args = {} # PostgreSQL does NOT need special args
+
+# 2. CREATE ENGINE (Run this AFTER variables are set)
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_SECRET = os.getenv("RAZORPAY_SECRET")
