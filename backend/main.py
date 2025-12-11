@@ -37,7 +37,8 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     print("⚠️  No Cloud DB found. Using Local SQLite.")
     DATABASE_URL = "sqlite:///./gharkadiet.db"
-    connect_args = {"check_same_thread": False} 
+    # CORRECT
+    engine = create_engine(DATABASE_URL, connect_args=connect_args)
 else:
     print("✅  Cloud DB Detected! Using PostgreSQL.")
     if DATABASE_URL.startswith("postgres://"):
