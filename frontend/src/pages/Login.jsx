@@ -5,7 +5,7 @@ import { LogIn, ArrowRight, Phone, AlertCircle, ArrowLeft, Loader2 } from 'lucid
 import toast from 'react-hot-toast'; // <--- Using Toasts for errors
 
 // Use your live backend URL (ensure /login is added in the request)
-const API_URL = "https://makhana-backend.onrender.com";
+const API_URL = "https://makhana-ai.onrender.com";
 
 export default function Login() {
   const navigate = useNavigate();
