@@ -1,24 +1,29 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { LogIn, ArrowRight, Phone, AlertCircle, ArrowLeft } from 'lucide-react';
+import { LogIn, ArrowRight, Phone, AlertCircle, ArrowLeft, Loader2 } from 'lucide-react';
+import toast from 'react-hot-toast'; // <--- Using Toasts for errors
+
+// Use your live backend URL (ensure /login is added in the request)
+const API_URL = "https://makhana-backend.onrender.com";
 
 export default function Login() {
   const navigate = useNavigate();
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
+
+    const loadingToast = toast.loading("Checking for plans...");
 
     try {
-        // NOTE: Ensure this URL matches your backend port (usually 8000)
-        const res = await axios.post('https://makhana-backend.onrender.com', { phone });
+        // --- FIX 1: ADDED "/login" ENDPOINT ---
+        const res = await axios.post(`${API_URL}/login`, { phone });
         
-        console.log("Login Success:", res.data);
+        toast.dismiss(loadingToast);
+        toast.success(`Welcome back, ${res.data.user.name}!`);
 
         // CHECK: Do we have saved plans?
         if (res.data.plans && res.data.plans.length > 0) {
@@ -30,17 +35,19 @@ export default function Login() {
                 } 
             });
         } else {
-            // NO: User exists but has no plans. Redirect to create one.
-            alert(`Welcome back ${res.data.user.name}! You don't have any saved plans yet.`);
+            // NO: User exists but has no plans.
+            toast(`No plans found. Let's create one!`, { icon: '🥗' });
             navigate('/start');
         }
 
     } catch (err) {
         console.error(err);
+        toast.dismiss(loadingToast);
+        
         if (err.response && err.response.status === 404) {
-            setError("We couldn't find an account with this number.");
+            toast.error("Account not found. Please create a plan first!");
         } else {
-            setError("Something went wrong. Is the backend running?");
+            toast.error("Login failed. Is the backend running?");
         }
     }
     setLoading(false);
@@ -82,19 +89,12 @@ export default function Login() {
                 </div>
             </div>
 
-            {error && (
-                <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm flex items-center">
-                    <AlertCircle size={16} className="mr-2" />
-                    {error}
-                </div>
-            )}
-
             <button 
                 type="submit" 
                 disabled={loading}
-                className="w-full bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 transition flex items-center justify-center disabled:opacity-50"
+                className="w-full bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 transition flex items-center justify-center disabled:opacity-50 shadow-lg"
             >
-                {loading ? "Checking..." : (
+                {loading ? <Loader2 className="animate-spin" /> : (
                     <>
                         Access My Plans <ArrowRight size={18} className="ml-2" />
                     </>
