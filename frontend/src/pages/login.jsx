@@ -16,7 +16,7 @@ export default function Login() {
 
     try {
         // NOTE: Ensure this URL matches your backend port (usually 8000)
-        const res = await axios.post('http://localhost:8000/login', { phone });
+        const res = await axios.post('https://makhana-backend.onrender.com', { phone });
         
         console.log("Login Success:", res.data);
 

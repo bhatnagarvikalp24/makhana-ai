@@ -70,7 +70,7 @@ export default function Dashboard() {
     const savingToast = toast.loading("Saving your plan...");
 
     try {
-        await axios.post('http://localhost:8000/save-plan', {
+        await axios.post('https://makhana-backend.onrender.com/save-plan', {
             user_id: state.userId || state.plan?.user_id,
             phone: phone,
             title: planTitle
