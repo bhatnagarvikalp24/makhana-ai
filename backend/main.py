@@ -61,11 +61,13 @@ app = FastAPI(
 # --- 2. CORS MIDDLEWARE (CRUCIAL FOR REACT/NETLIFY) ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-    "https://makhana-ai.netlify.app", 
-    "http://localhost:5173"
-], # In production, replace "*" with your specific Netlify URL
-    allow_credentials=True,
+    # 1. Allow ANY website to connect (Netlify, Localhost, etc.)
+    allow_origins=["*"],
+    
+    # 2. Turn OFF strict credentials (Fixes the error!)
+    allow_credentials=False,
+    
+    # 3. Allow all methods and headers
     allow_methods=["*"],
     allow_headers=["*"],
 )
