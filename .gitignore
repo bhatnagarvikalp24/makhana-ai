@@ -1,0 +1,13 @@
+# Ignore Environment Variables
+.env
+.env.local
+
+# Ignore Python specific
+__pycache__/
+venv/
+*.pyc
+
+# Ignore Node specific
+node_modules/
+dist/
+.DS_Store

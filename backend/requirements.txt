@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+python-multipart
+python-dotenv
+openai
+razorpay
+pdfplumber
+requests
+psycopg2-binary
