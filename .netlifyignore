@@ -1,0 +1,17 @@
+# Netlify Build Ignore
+# This file tells Netlify to SKIP builds for certain commits
+
+# Ignore backend-only changes
+backend/**
+
+# Ignore documentation changes
+*.md
+IMPROVEMENTS.md
+FINAL_IMPROVEMENTS_SUMMARY.md
+PROMPT_IMPROVEMENTS.md
+DATABASE_ACCESS_GUIDE.md
+KEEP_ALIVE_SETUP.md
+
+# Ignore config files that don't affect frontend
+.github/**
+.claude/**
