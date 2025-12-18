@@ -421,6 +421,69 @@ Your task is to generate **goal-oriented, medically-aware, and outcome-driven di
 
 ---
 
+### 🔸 CRITICAL: CALCULATE PERSONALIZED METRICS (DO NOT USE TEMPLATES!)
+
+You MUST calculate the following based on the user's **actual stats, age, gender, and goal**. NO generic ranges!
+
+#### STEP 1: Calculate BMR (Basal Metabolic Rate)
+Use Mifflin-St Jeor Formula:
+- **Men:** BMR = (10 × weight_kg) + (6.25 × height_cm) - (5 × age) + 5
+- **Women:** BMR = (10 × weight_kg) + (6.25 × height_cm) - (5 × age) - 161
+
+For this user:
+- Gender: {profile.gender}
+- Weight: {profile.weight_kg}kg
+- Height: {profile.height_cm}cm
+- Age: {profile.age}
+
+**Calculate their exact BMR now.**
+
+#### STEP 2: Calculate TDEE (Total Daily Energy Expenditure)
+BMR × Activity multiplier:
+- Sedentary (office job): BMR × 1.2
+- Light activity: BMR × 1.375
+- Moderate (3-5 days exercise): BMR × 1.55
+- Active (6-7 days): BMR × 1.725
+
+**Assume moderate activity unless user is 60+ (then use sedentary).**
+
+#### STEP 3: Adjust Calories Based on Goal
+Goal: {profile.goal}
+
+**Weight Loss:**
+- Calories = TDEE - 500 (for 0.5kg/week loss)
+- Aggressive: TDEE - 750 (for 0.75kg/week)
+- Never go below 1200 for women, 1500 for men
+
+**Muscle Gain:**
+- Calories = TDEE + 300-500 (surplus for muscle)
+
+**Balanced Diet / Maintenance:**
+- Calories = TDEE (maintenance)
+
+**Diabetes / Medical:**
+- Calories = TDEE - 300 (mild deficit for health)
+
+**Provide a 100-150 calorie range, NOT "1800-2000"!**
+Example: If TDEE = 2100, weight loss = "1550-1650 kcal"
+
+#### STEP 4: Calculate Protein
+**DO NOT use 80-100g for everyone!**
+
+Goal-based protein:
+- **Weight Loss:** 1.6-2.0g per kg bodyweight (preserve muscle)
+- **Muscle Gain:** 1.8-2.2g per kg bodyweight
+- **Balanced Diet (Age < 60):** 1.0-1.2g per kg
+- **Balanced Diet (Age 60+):** 0.8-1.0g per kg (lower kidney stress)
+- **Diabetes:** 1.2-1.5g per kg
+
+For this user ({profile.weight_kg}kg, {profile.age}y, Goal: {profile.goal}):
+**Calculate exact protein in grams.**
+
+Example: 68-year-old woman, 60kg, balanced diet → 48-60g protein (NOT 80-100g!)
+
+---
+
 ### 🔸 OUTPUT REQUIREMENTS (VERY IMPORTANT)
 
 Your output must be **structured, refined, and complete**, not just a 7-day food list.
@@ -432,10 +495,10 @@ Briefly restate:
 - Any medical adjustments made
 
 #### 2️⃣ Daily Nutrition Targets
-Clearly mention:
-- Target daily calories (provide a range, e.g., 1800-2000 kcal)
-- Daily protein intake (grams)
-- Carbohydrates and fats (high-level guidance)
+**CRITICAL:** Use the EXACT calculated values above. NO templates!
+- Target daily calories (narrow 100-150 kcal range based on calculations)
+- Daily protein intake (exact grams based on formula)
+- Carbohydrates and fats (high-level guidance, adapt to goal)
 - Any medical constraints applied (low GI foods, low sodium, etc.)
 
 #### 3️⃣ Meal Structure (Dynamic, NOT fixed 4 meals)
@@ -459,21 +522,58 @@ Provide a **7-day plan** with:
 - Practical and realistic Indian meals
 - 80% {profile.region} regional preference, 20% variety
 
-#### 5️⃣ Activity Guidance (If Applicable)
-If goal involves muscle gain/fat loss:
-- Recommended training frequency (days/week)
-- Type: strength / cardio / mix
-- Simple beginner-friendly guidance
+#### 5️⃣ Activity Guidance (CONDITIONAL - Be Specific!)
+**CRITICAL:** Adapt to user's age and goal. NO generic "strength + cardio" for everyone!
 
-If weight loss or medical diet:
-- Walking / light activity recommendations
+**For Muscle Gain (Age < 50):**
+- Frequency: 4-5 days/week
+- Type: "Strength training with progressive overload"
+- Tips: "Focus on compound movements, increase weights gradually"
 
-#### 6️⃣ Expected Results (Mandatory)
-Clearly state:
-- Expected weight change per week
-- When visible changes may appear
-- Success milestones: 30 / 60 / 90 days
-- Warning if progress may plateau
+**For Weight Loss (Age < 50):**
+- Frequency: 5-6 days/week
+- Type: "Cardio (walking/jogging) + light strength training"
+- Tips: "Start with 30-min walks, gradually add intensity"
+
+**For Balanced Diet / Maintenance (Age < 60):**
+- Frequency: 3-4 days/week
+- Type: "Walking, yoga, or light exercise"
+- Tips: "Focus on consistency, not intensity"
+
+**For Age 60+ (ANY goal):**
+- Frequency: 3-4 days/week
+- Type: "Light walking, stretching, chair exercises"
+- Tips: "Prioritize joint health, avoid high-impact activities"
+
+**For Diabetes / Medical:**
+- Frequency: 5 days/week
+- Type: "30-45 min walking after meals"
+- Tips: "Monitor blood sugar before and after activity"
+
+**Current user:** Age {profile.age}, Goal: {profile.goal}
+**→ Choose the appropriate guidance above. DO NOT mix categories!**
+
+#### 6️⃣ Expected Results (Mandatory - Be Realistic!)
+**CRITICAL:** Base on ACTUAL calculated calories and user's stats. NO templates!
+
+**Calculate weight change:**
+- Calorie deficit of 500/day = 0.5kg/week
+- Calorie deficit of 750/day = 0.75kg/week
+- Surplus of 300-500/day = 0.25-0.5kg muscle gain/month
+
+**For this user:**
+Goal: {profile.goal}
+- If weight loss: Calculate expected kg/week from calorie deficit
+- If muscle gain: "0.25-0.5kg gain per month" (realistic muscle)
+- If balanced diet: "Maintenance - no significant weight change"
+
+**Visible changes:** Adapt to age!
+- Age < 40: "Visible in 3-4 weeks"
+- Age 40-60: "Visible in 4-6 weeks"
+- Age 60+: "Visible in 6-8 weeks"
+
+**Milestones:** Calculate based on weekly change × weeks
+Example: 0.5kg/week × 4 weeks = 2kg in 30 days (NOT generic "3-4kg")
 
 #### 7️⃣ Important Notes & Safety
 Include:
@@ -507,47 +607,76 @@ Include:
 
 ---
 
+### 🔸 FINAL ENFORCEMENT: REAL EXAMPLES TO FOLLOW
+
+**Example 1: 68-year-old Woman, 60kg, 160cm, Balanced Diet**
+- BMR = (10 × 60) + (6.25 × 160) - (5 × 68) - 161 = 1139 kcal
+- TDEE (sedentary) = 1139 × 1.2 = 1367 kcal
+- Goal: Balanced → Calories = TDEE = **"1300-1400 kcal"** (NOT 1800-2000!)
+- Protein (age 60+, balanced) = 0.8-1.0g/kg = **"48-60g"** (NOT 80-100g!)
+- Activity: "Light walking, stretching, chair exercises" (NOT "strength training + cardio"!)
+
+**Example 2: 25-year-old Man, 75kg, 175cm, Muscle Gain**
+- BMR = (10 × 75) + (6.25 × 175) - (5 × 25) + 5 = 1719 kcal
+- TDEE (moderate) = 1719 × 1.55 = 2664 kcal
+- Goal: Muscle Gain → Calories = TDEE + 400 = **"2950-3100 kcal"**
+- Protein = 1.8-2.2g/kg = **"135-165g"**
+- Activity: "Strength training with progressive overload, 4-5 days/week"
+
+**Example 3: 40-year-old Woman, 70kg, 165cm, Weight Loss**
+- BMR = (10 × 70) + (6.25 × 165) - (5 × 40) - 161 = 1370 kcal
+- TDEE (moderate) = 1370 × 1.55 = 2124 kcal
+- Goal: Weight Loss → Calories = TDEE - 500 = **"1550-1650 kcal"**
+- Protein = 1.6-2.0g/kg = **"112-140g"**
+- Activity: "Cardio (walking/jogging) + light strength, 5-6 days/week"
+
+**→ FOLLOW THIS PATTERN! Calculate for {profile.name}: {profile.age}y, {profile.gender}, {profile.weight_kg}kg, {profile.height_cm}cm, {profile.goal}**
+
+---
+
 ### 🔸 REQUIRED JSON OUTPUT FORMAT
 
+**CRITICAL:** Replace ALL template values with CALCULATED values!
+
 {{
-  "summary": "Personalized 2-3 sentence summary explaining the plan's focus and medical adjustments",
+  "summary": "Personalized 2-3 sentence summary with actual stats and adjustments",
   "daily_targets": {{
-    "calories": "1800-2000 kcal",
-    "protein": "80-100g",
-    "carbs_guidance": "Moderate, focus on whole grains",
+    "calories": "[CALCULATED VALUE from above, e.g., 1550-1650 kcal]",
+    "protein": "[CALCULATED VALUE, e.g., 112-140g]",
+    "carbs_guidance": "Moderate, focus on whole grains" OR "Low GI carbs" if diabetic,
     "fats_guidance": "Healthy fats from nuts, ghee",
-    "medical_adjustments": "Low GI foods for diabetes control"
+    "medical_adjustments": "[Specific to user's conditions, or 'None' if healthy]"
   }},
   "days": [
     {{
       "day": 1,
-      "early_morning": "Optional: 1 glass warm water with lemon",
-      "breakfast": "2 Moong Dal Chilla + 1 cup Curd (Protein-rich start)",
-      "mid_morning": "1 Apple + 10 Almonds (Energy boost)",
-      "lunch": "2 Rotis + 1 cup Dal + Salad (Balanced macro meal)",
-      "evening_snack": "1 cup Green Tea + 2 Marie Biscuits",
-      "dinner": "Grilled Paneer (100g) + Sautéed Vegetables (Light protein)",
-      "before_bed": "Optional: 1 glass warm milk with turmeric"
+      "early_morning": "[Include ONLY if beneficial for goal]",
+      "breakfast": "Specific dish with portions",
+      "mid_morning": "[Include ONLY if needed]",
+      "lunch": "Specific dish with portions",
+      "evening_snack": "Specific dish",
+      "dinner": "Specific dish with portions",
+      "before_bed": "[Include ONLY if helpful]"
     }},
     ...continue for 7 days with variety
   ],
   "activity_guidance": {{
-    "training_frequency": "4-5 days/week",
-    "type": "Strength training + light cardio",
-    "beginner_tips": "Start with bodyweight exercises, gradually add weights"
+    "training_frequency": "[CHOOSE from age-goal matrix above]",
+    "type": "[SPECIFIC to user's age and goal]",
+    "beginner_tips": "[RELEVANT to chosen activity type]"
   }},
   "expected_results": {{
-    "weekly_weight_change": "0.5-1 kg loss per week",
-    "visible_changes": "Noticeable in 3-4 weeks",
-    "30_day_milestone": "3-4 kg loss, improved energy",
-    "60_day_milestone": "6-8 kg loss, muscle definition",
-    "90_day_milestone": "10-12 kg loss, significant body recomposition",
-    "plateau_warning": "Progress may slow after 8 weeks, reassess calories"
+    "weekly_weight_change": "[CALCULATED from calorie deficit/surplus]",
+    "visible_changes": "[ADAPT to user's age from guidelines]",
+    "30_day_milestone": "[CALCULATED: weekly_change × 4]",
+    "60_day_milestone": "[CALCULATED: weekly_change × 8]",
+    "90_day_milestone": "[CALCULATED: weekly_change × 12]",
+    "plateau_warning": "[Relevant warning or 'N/A' if maintenance]"
   }},
   "important_notes": {{
-    "hydration": "Drink 3-4 liters of water daily",
+    "hydration": "[Adapt to user's weight: ~0.03L per kg bodyweight]",
     "sleep": "Aim for 7-8 hours of quality sleep",
-    "medical_disclaimer": "Consult doctor if diabetic conditions worsen",
+    "medical_disclaimer": "[ONLY if user has medical conditions, else generic]",
     "reassessment": "Reassess plan every 4 weeks based on progress"
   }}
 }}
