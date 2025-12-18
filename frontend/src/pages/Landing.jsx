@@ -1,8 +1,23 @@
 import { useNavigate } from 'react-router-dom';
+import { useEffect } from 'react';
 import { ArrowRight, Activity, CheckCircle, Brain, Apple, ShoppingBag, Star, Users, Clock, Shield } from 'lucide-react';
+import api from '../components/api';
 
 export default function Landing() {
   const navigate = useNavigate();
+
+  // Wake up backend on landing page load
+  useEffect(() => {
+    const wakeUpBackend = async () => {
+      try {
+        await api.get('/health');
+        console.log('✅ Backend is awake');
+      } catch (error) {
+        console.log('⚠️ Backend waking up...');
+      }
+    };
+    wakeUpBackend();
+  }, []);
 
   return (
     <div className="bg-gradient-to-b from-green-50 via-white to-green-50">
