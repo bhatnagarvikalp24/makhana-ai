@@ -78,9 +78,13 @@ engine = create_engine(
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_SECRET = os.getenv("RAZORPAY_SECRET")
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")  # Optional - for recipe videos
 
 # Initialize AI Client
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# Simple in-memory cache for recipe videos (avoids repeated API calls)
+recipe_video_cache = {}
 
 # Initialize FastAPI
 app = FastAPI(
@@ -950,6 +954,114 @@ Provide ONLY the JSON, no other text."""
     except Exception as e:
         logger.error(f"Meal swap error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to generate alternatives: {str(e)}")
+
+# --- RECIPE VIDEO ENDPOINT ---
+class RecipeVideoRequest(BaseModel):
+    meal_name: str  # e.g., "Palak Paneer", "Oats with Banana"
+    language: Optional[str] = "any"  # "hindi", "english", "any"
+
+@app.post("/get-recipe-video")
+async def get_recipe_video(request: RecipeVideoRequest):
+    """
+    Fetches top cooking video from YouTube for a given meal.
+    Uses caching to avoid repeated API calls.
+    """
+    try:
+        # Check cache first
+        cache_key = f"{request.meal_name.lower()}_{request.language}"
+        if cache_key in recipe_video_cache:
+            logger.info(f"Cache hit for recipe: {request.meal_name}")
+            return recipe_video_cache[cache_key]
+
+        # If no YouTube API key, return search URL instead
+        if not YOUTUBE_API_KEY:
+            logger.warning("YouTube API key not configured, returning search link")
+            search_query = f"{request.meal_name} recipe easy indian"
+            return {
+                "success": True,
+                "video_id": None,
+                "title": f"Search: {request.meal_name} Recipe",
+                "channel": "YouTube",
+                "thumbnail": "https://via.placeholder.com/480x360?text=No+API+Key",
+                "url": f"https://www.youtube.com/results?search_query={search_query.replace(' ', '+')}",
+                "fallback": True
+            }
+
+        # Build search query
+        language_hint = ""
+        if request.language == "hindi":
+            language_hint = " hindi"
+        elif request.language == "english":
+            language_hint = " english"
+
+        search_query = f"{request.meal_name} recipe easy indian{language_hint}"
+
+        # Call YouTube Data API
+        youtube_url = "https://www.googleapis.com/youtube/v3/search"
+        params = {
+            "part": "snippet",
+            "q": search_query,
+            "type": "video",
+            "videoDuration": "medium",  # 4-20 minutes
+            "maxResults": 3,
+            "key": YOUTUBE_API_KEY,
+            "relevanceLanguage": "hi" if request.language == "hindi" else "en",
+            "order": "relevance"
+        }
+
+        response = requests.get(youtube_url, params=params)
+
+        if response.status_code != 200:
+            logger.error(f"YouTube API error: {response.status_code}")
+            raise HTTPException(status_code=500, detail="YouTube API request failed")
+
+        data = response.json()
+
+        if not data.get("items"):
+            return {
+                "success": False,
+                "message": "No recipe videos found",
+                "fallback": True,
+                "url": f"https://www.youtube.com/results?search_query={search_query.replace(' ', '+')}"
+            }
+
+        # Get first video
+        video = data["items"][0]
+        video_id = video["id"]["videoId"]
+        snippet = video["snippet"]
+
+        result = {
+            "success": True,
+            "video_id": video_id,
+            "title": snippet["title"],
+            "channel": snippet["channelTitle"],
+            "thumbnail": snippet["thumbnails"]["high"]["url"],
+            "url": f"https://www.youtube.com/watch?v={video_id}",
+            "embed_url": f"https://www.youtube.com/embed/{video_id}",
+            "fallback": False
+        }
+
+        # Cache the result
+        recipe_video_cache[cache_key] = result
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Recipe video error: {e}")
+        # Fallback to search link
+        search_query = f"{request.meal_name} recipe easy indian"
+        return {
+            "success": True,
+            "video_id": None,
+            "title": f"Search: {request.meal_name} Recipe",
+            "channel": "YouTube",
+            "thumbnail": "https://via.placeholder.com/480x360?text=Error",
+            "url": f"https://www.youtube.com/results?search_query={search_query.replace(' ', '+')}",
+            "fallback": True,
+            "error": str(e)
+        }
 
 # --- 7. RUN INSTRUCTION ---
 if __name__ == "__main__":

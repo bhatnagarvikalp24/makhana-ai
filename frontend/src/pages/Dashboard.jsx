@@ -1,12 +1,12 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ShoppingCart, ArrowLeft, Loader2, Save, X, Stethoscope, Download, ShieldCheck, RefreshCw } from 'lucide-react';
+import { ShoppingCart, ArrowLeft, Loader2, Save, X, Stethoscope, Download, ShieldCheck, RefreshCw, Play } from 'lucide-react';
 import { useState } from 'react';
 import axios from 'axios';
 import html2pdf from 'html2pdf.js';
 import toast from 'react-hot-toast'; // <--- 1. IMPORT TOAST
 import { generateGrocery } from '../components/api';
 
-const API_URL = 'https://makhana-ai.onrender.com';
+const API_URL = import.meta.env.DEV ? 'http://localhost:8000' : 'https://makhana-ai.onrender.com';
 
 export default function Dashboard() {
   const { state } = useLocation();
@@ -23,6 +23,11 @@ export default function Dashboard() {
   const [swapLoading, setSwapLoading] = useState(false);
   const [swapAlternatives, setSwapAlternatives] = useState([]);
   const [currentSwapMeal, setCurrentSwapMeal] = useState({ text: '', type: '', dayIndex: -1, mealKey: '' });
+
+  // Recipe Video Modal States
+  const [showVideoModal, setShowVideoModal] = useState(false);
+  const [videoLoading, setVideoLoading] = useState(false);
+  const [currentVideo, setCurrentVideo] = useState(null);
 
   // SAFETY CHECKS
   if (!state?.plan) {
@@ -144,6 +149,28 @@ export default function Dashboard() {
     // For MVP, we're just showing the swap capability
   };
 
+  // RECIPE VIDEO HANDLER
+  const handleWatchRecipe = async (mealText) => {
+    setShowVideoModal(true);
+    setVideoLoading(true);
+    setCurrentVideo(null);
+
+    try {
+      const response = await axios.post(`${API_URL}/get-recipe-video`, {
+        meal_name: mealText,
+        language: "any"
+      });
+
+      setCurrentVideo(response.data);
+    } catch (error) {
+      console.error('Recipe video error:', error);
+      toast.error("Could not load recipe video. Please try again.");
+      setShowVideoModal(false);
+    } finally {
+      setVideoLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-50 to-white">
       <div className="max-w-4xl mx-auto px-4 py-8 relative">
@@ -250,83 +277,146 @@ export default function Dashboard() {
                        {day.early_morning && (
                          <div className="leading-relaxed flex justify-between items-start group/meal print:block">
                            <p className="flex-1"><span className="font-bold text-orange-500">☀️ Early Morning:</span> {day.early_morning}</p>
-                           <button
-                             onClick={() => handleSwapMeal(day.early_morning, 'early_morning', idx, 'early_morning')}
-                             className="opacity-0 group-hover/meal:opacity-100 transition-opacity ml-2 text-green-600 hover:text-green-700 print:hidden"
-                             title="Find alternatives"
-                           >
-                             <RefreshCw size={14} />
-                           </button>
+                           <div className="flex gap-2 opacity-0 group-hover/meal:opacity-100 transition-opacity print:hidden">
+                             <button
+                               onClick={() => handleWatchRecipe(day.early_morning)}
+                               className="text-blue-600 hover:text-blue-700"
+                               title="Watch recipe"
+                             >
+                               <Play size={14} fill="currentColor" />
+                             </button>
+                             <button
+                               onClick={() => handleSwapMeal(day.early_morning, 'early_morning', idx, 'early_morning')}
+                               className="text-green-600 hover:text-green-700"
+                               title="Find alternatives"
+                             >
+                               <RefreshCw size={14} />
+                             </button>
+                           </div>
                          </div>
                        )}
 
                        <div className="leading-relaxed flex justify-between items-start group/meal print:block">
                          <p className="flex-1"><span className="font-bold text-green-600">🌅 Breakfast:</span> {day.breakfast || day.meals?.breakfast || "Not planned"}</p>
-                         <button
-                           onClick={() => handleSwapMeal(day.breakfast || day.meals?.breakfast, 'breakfast', idx, 'breakfast')}
-                           className="opacity-0 group-hover/meal:opacity-100 transition-opacity ml-2 text-green-600 hover:text-green-700 print:hidden"
-                           title="Find alternatives"
-                         >
-                           <RefreshCw size={14} />
-                         </button>
-                       </div>
-
-                       {day.mid_morning && (
-                         <div className="leading-relaxed flex justify-between items-start group/meal print:block">
-                           <p className="flex-1"><span className="font-bold text-blue-500">🍎 Mid-Morning:</span> {day.mid_morning}</p>
+                         <div className="flex gap-2 opacity-0 group-hover/meal:opacity-100 transition-opacity print:hidden">
                            <button
-                             onClick={() => handleSwapMeal(day.mid_morning, 'mid_morning', idx, 'mid_morning')}
-                             className="opacity-0 group-hover/meal:opacity-100 transition-opacity ml-2 text-green-600 hover:text-green-700 print:hidden"
+                             onClick={() => handleWatchRecipe(day.breakfast || day.meals?.breakfast)}
+                             className="text-blue-600 hover:text-blue-700"
+                             title="Watch recipe"
+                           >
+                             <Play size={14} fill="currentColor" />
+                           </button>
+                           <button
+                             onClick={() => handleSwapMeal(day.breakfast || day.meals?.breakfast, 'breakfast', idx, 'breakfast')}
+                             className="text-green-600 hover:text-green-700"
                              title="Find alternatives"
                            >
                              <RefreshCw size={14} />
                            </button>
                          </div>
+                       </div>
+
+                       {day.mid_morning && (
+                         <div className="leading-relaxed flex justify-between items-start group/meal print:block">
+                           <p className="flex-1"><span className="font-bold text-blue-500">🍎 Mid-Morning:</span> {day.mid_morning}</p>
+                           <div className="flex gap-2 opacity-0 group-hover/meal:opacity-100 transition-opacity print:hidden">
+                             <button
+                               onClick={() => handleWatchRecipe(day.mid_morning)}
+                               className="text-blue-600 hover:text-blue-700"
+                               title="Watch recipe"
+                             >
+                               <Play size={14} fill="currentColor" />
+                             </button>
+                             <button
+                               onClick={() => handleSwapMeal(day.mid_morning, 'mid_morning', idx, 'mid_morning')}
+                               className="text-green-600 hover:text-green-700"
+                               title="Find alternatives"
+                             >
+                               <RefreshCw size={14} />
+                             </button>
+                           </div>
+                         </div>
                        )}
 
                        <div className="leading-relaxed flex justify-between items-start group/meal print:block">
                          <p className="flex-1"><span className="font-bold text-green-600">🍛 Lunch:</span> {day.lunch || day.meals?.lunch || "Not planned"}</p>
-                         <button
-                           onClick={() => handleSwapMeal(day.lunch || day.meals?.lunch, 'lunch', idx, 'lunch')}
-                           className="opacity-0 group-hover/meal:opacity-100 transition-opacity ml-2 text-green-600 hover:text-green-700 print:hidden"
-                           title="Find alternatives"
-                         >
-                           <RefreshCw size={14} />
-                         </button>
+                         <div className="flex gap-2 opacity-0 group-hover/meal:opacity-100 transition-opacity print:hidden">
+                           <button
+                             onClick={() => handleWatchRecipe(day.lunch || day.meals?.lunch)}
+                             className="text-blue-600 hover:text-blue-700"
+                             title="Watch recipe"
+                           >
+                             <Play size={14} fill="currentColor" />
+                           </button>
+                           <button
+                             onClick={() => handleSwapMeal(day.lunch || day.meals?.lunch, 'lunch', idx, 'lunch')}
+                             className="text-green-600 hover:text-green-700"
+                             title="Find alternatives"
+                           >
+                             <RefreshCw size={14} />
+                           </button>
+                         </div>
                        </div>
 
                        <div className="leading-relaxed flex justify-between items-start group/meal print:block">
                          <p className="flex-1"><span className="font-bold text-amber-600">☕ Evening Snack:</span> {day.evening_snack || day.snack || day.meals?.snack || "Not planned"}</p>
-                         <button
-                           onClick={() => handleSwapMeal(day.evening_snack || day.snack || day.meals?.snack, 'snack', idx, 'evening_snack')}
-                           className="opacity-0 group-hover/meal:opacity-100 transition-opacity ml-2 text-green-600 hover:text-green-700 print:hidden"
-                           title="Find alternatives"
-                         >
-                           <RefreshCw size={14} />
-                         </button>
+                         <div className="flex gap-2 opacity-0 group-hover/meal:opacity-100 transition-opacity print:hidden">
+                           <button
+                             onClick={() => handleWatchRecipe(day.evening_snack || day.snack || day.meals?.snack)}
+                             className="text-blue-600 hover:text-blue-700"
+                             title="Watch recipe"
+                           >
+                             <Play size={14} fill="currentColor" />
+                           </button>
+                           <button
+                             onClick={() => handleSwapMeal(day.evening_snack || day.snack || day.meals?.snack, 'snack', idx, 'evening_snack')}
+                             className="text-green-600 hover:text-green-700"
+                             title="Find alternatives"
+                           >
+                             <RefreshCw size={14} />
+                           </button>
+                         </div>
                        </div>
 
                        <div className="leading-relaxed flex justify-between items-start group/meal print:block">
                          <p className="flex-1"><span className="font-bold text-indigo-600">🌙 Dinner:</span> {day.dinner || day.meals?.dinner || "Not planned"}</p>
-                         <button
-                           onClick={() => handleSwapMeal(day.dinner || day.meals?.dinner, 'dinner', idx, 'dinner')}
-                           className="opacity-0 group-hover/meal:opacity-100 transition-opacity ml-2 text-green-600 hover:text-green-700 print:hidden"
-                           title="Find alternatives"
-                         >
-                           <RefreshCw size={14} />
-                         </button>
+                         <div className="flex gap-2 opacity-0 group-hover/meal:opacity-100 transition-opacity print:hidden">
+                           <button
+                             onClick={() => handleWatchRecipe(day.dinner || day.meals?.dinner)}
+                             className="text-blue-600 hover:text-blue-700"
+                             title="Watch recipe"
+                           >
+                             <Play size={14} fill="currentColor" />
+                           </button>
+                           <button
+                             onClick={() => handleSwapMeal(day.dinner || day.meals?.dinner, 'dinner', idx, 'dinner')}
+                             className="text-green-600 hover:text-green-700"
+                             title="Find alternatives"
+                           >
+                             <RefreshCw size={14} />
+                           </button>
+                         </div>
                        </div>
 
                        {day.before_bed && (
                          <div className="leading-relaxed flex justify-between items-start group/meal print:block">
                            <p className="flex-1"><span className="font-bold text-purple-500">🌜 Before Bed:</span> {day.before_bed}</p>
-                           <button
-                             onClick={() => handleSwapMeal(day.before_bed, 'before_bed', idx, 'before_bed')}
-                             className="opacity-0 group-hover/meal:opacity-100 transition-opacity ml-2 text-green-600 hover:text-green-700 print:hidden"
-                             title="Find alternatives"
-                           >
-                             <RefreshCw size={14} />
-                           </button>
+                           <div className="flex gap-2 opacity-0 group-hover/meal:opacity-100 transition-opacity print:hidden">
+                             <button
+                               onClick={() => handleWatchRecipe(day.before_bed)}
+                               className="text-blue-600 hover:text-blue-700"
+                               title="Watch recipe"
+                             >
+                               <Play size={14} fill="currentColor" />
+                             </button>
+                             <button
+                               onClick={() => handleSwapMeal(day.before_bed, 'before_bed', idx, 'before_bed')}
+                               className="text-green-600 hover:text-green-700"
+                               title="Find alternatives"
+                             >
+                               <RefreshCw size={14} />
+                             </button>
+                           </div>
                          </div>
                        )}
                    </div>
@@ -565,6 +655,99 @@ export default function Dashboard() {
                 <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
                   <strong>Note:</strong> Swapping meals is currently a preview feature. Changes won't be saved permanently yet.
                 </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- RECIPE VIDEO MODAL --- */}
+      {showVideoModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full p-6 relative my-8">
+            <button
+              onClick={() => setShowVideoModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="text-center mb-6">
+              <div className="bg-blue-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Play className="text-blue-600" size={24} fill="currentColor" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-800">Recipe Video</h3>
+            </div>
+
+            {videoLoading ? (
+              <div className="text-center py-12">
+                <Loader2 className="animate-spin text-blue-600 mx-auto mb-3" size={40} />
+                <p className="text-gray-600">Loading recipe video...</p>
+              </div>
+            ) : currentVideo ? (
+              <div>
+                {currentVideo.fallback ? (
+                  // Fallback: Open YouTube search
+                  <div className="text-center py-8">
+                    <div className="mb-4">
+                      <img
+                        src="https://www.youtube.com/img/desktop/yt_1200.png"
+                        alt="YouTube"
+                        className="w-32 mx-auto mb-4 opacity-50"
+                      />
+                      <p className="text-gray-600 mb-2">No API key configured or video not found.</p>
+                      <p className="text-sm text-gray-500">Opening YouTube search instead...</p>
+                    </div>
+                    <a
+                      href={currentVideo.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center bg-red-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-700 transition"
+                    >
+                      <Play size={18} className="mr-2" fill="currentColor" />
+                      Search on YouTube
+                    </a>
+                  </div>
+                ) : (
+                  // Show video embed
+                  <div>
+                    <div className="aspect-video bg-black rounded-lg overflow-hidden mb-4">
+                      <iframe
+                        width="100%"
+                        height="100%"
+                        src={currentVideo.embed_url}
+                        title={currentVideo.title}
+                        frameBorder="0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        className="w-full h-full"
+                      ></iframe>
+                    </div>
+
+                    <div className="text-left">
+                      <h4 className="font-bold text-gray-800 mb-2">{currentVideo.title}</h4>
+                      <p className="text-sm text-gray-600 mb-3">
+                        <span className="font-semibold">Channel:</span> {currentVideo.channel}
+                      </p>
+
+                      <a
+                        href={currentVideo.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center text-blue-600 hover:text-blue-700 text-sm font-medium"
+                      >
+                        Watch on YouTube
+                        <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                No video available.
               </div>
             )}
           </div>
