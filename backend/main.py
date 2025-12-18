@@ -13,9 +13,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 # Database
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Float, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Float, Boolean, text
 from sqlalchemy.orm import sessionmaker, Session, declarative_base, relationship
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 # AI & Utilities
 from openai import OpenAI
@@ -46,21 +46,33 @@ if not DATABASE_URL:
     # Scenario A: Local Development (SQLite)
     print("⚠️  No Cloud DB found. Using Local SQLite.")
     DATABASE_URL = "sqlite:///./gharkadiet.db"
-    connect_args = {"check_same_thread": False} # Required for SQLite
+    connect_args = {"check_same_thread": False}
+    pool_config = {}
 else:
     # Scenario B: Cloud Production (PostgreSQL)
     print("✅  Cloud DB Detected! Using PostgreSQL.")
     # Fix for some cloud providers using 'postgres://' instead of 'postgresql://'
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    connect_args = {} # PostgreSQL does NOT need special args
+
+    # Add SSL requirement for Neon
+    connect_args = {"sslmode": "require"}
+
+    # Production-grade connection pooling for Neon
+    pool_config = {
+        "pool_size": 5,              # Max connections in pool
+        "max_overflow": 10,          # Extra connections beyond pool_size
+        "pool_timeout": 30,          # Wait 30s for connection
+        "pool_recycle": 1800,        # Recycle connections every 30 min (Neon closes after inactivity)
+        "pool_pre_ping": True,       # Test connection before using
+    }
 
 # 2. CREATE ENGINE (Run this AFTER variables are set)
 engine = create_engine(
-    DATABASE_URL, 
-    connect_args=connect_args, 
-    pool_pre_ping=True,  # Checks if connection is alive before trying to run a query
-    pool_recycle=300     # Refreshes the connection every 5 minutes so it doesn't get cut
+    DATABASE_URL,
+    connect_args=connect_args,
+    **pool_config,
+    echo=False  # Set to True for SQL query logging
 )
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -186,9 +198,15 @@ Base.metadata.create_all(bind=engine)
 
 # Dependency to get DB session
 def get_db():
+    """Database session with automatic reconnection on failure"""
     db = SessionLocal()
     try:
         yield db
+        db.commit()  # Commit any pending changes
+    except Exception as e:
+        db.rollback()  # Rollback on error
+        logger.error(f"Database session error: {e}")
+        raise
     finally:
         db.close()
 
@@ -247,6 +265,21 @@ def call_ai_json(system_prompt: str, user_prompt: str, max_retries: int = 2):
 @app.get("/")
 def home():
     return {"message": "AI Ghar-Ka-Diet Backend is Running!", "status": "active"}
+
+@app.get("/health")
+def health_check(db: Session = Depends(get_db)):
+    """Health check endpoint with database connectivity test"""
+    try:
+        # Test database connection
+        db.execute(text("SELECT 1"))
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(status_code=503, detail="Database connection failed")
 
 @app.post("/upload-blood-report")
 async def analyze_blood_report(file: UploadFile = File(...)):
