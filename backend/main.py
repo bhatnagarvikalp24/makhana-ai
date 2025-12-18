@@ -281,6 +281,46 @@ def health_check(db: Session = Depends(get_db)):
         logger.error(f"Health check failed: {e}")
         raise HTTPException(status_code=503, detail="Database connection failed")
 
+@app.get("/admin/stats")
+def get_stats(db: Session = Depends(get_db)):
+    """Get database statistics - users, plans, etc."""
+    try:
+        total_users = db.query(User).count()
+        total_plans = db.query(DietPlan).count()
+        total_saved = db.query(SavedPlan).count()
+
+        # Get recent users (last 10)
+        recent_users = db.query(User).order_by(User.created_at.desc()).limit(10).all()
+
+        # Get recent plans (last 10)
+        recent_plans = db.query(DietPlan).order_by(DietPlan.created_at.desc()).limit(10).all()
+
+        return {
+            "stats": {
+                "total_users": total_users,
+                "total_plans": total_plans,
+                "total_saved_plans": total_saved
+            },
+            "recent_users": [
+                {
+                    "id": u.id,
+                    "name": u.name,
+                    "phone": u.phone[:4] + "****" + u.phone[-2:] if u.phone else None,  # Masked
+                    "created_at": u.created_at.isoformat()
+                } for u in recent_users
+            ],
+            "recent_plans": [
+                {
+                    "id": p.id,
+                    "user_id": p.user_id,
+                    "created_at": p.created_at.isoformat()
+                } for p in recent_plans
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Stats error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/upload-blood-report")
 async def analyze_blood_report(file: UploadFile = File(...)):
     """
