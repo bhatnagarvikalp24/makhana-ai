@@ -78,16 +78,12 @@ app = FastAPI(
 )
 
 # --- 2. CORS MIDDLEWARE (CRUCIAL FOR REACT/NETLIFY) ---
+# Allow all origins temporarily for debugging - will restrict later
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://makhana-ai.netlify.app",
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5173"
-    ],
-    allow_credentials=False,  # Changed to False to fix OPTIONS preflight 400 error
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_origins=["*"],  # Temporarily allow all origins to fix CORS
+    allow_credentials=False,
+    allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
