@@ -1,42 +1,84 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast'; // <--- 1. IMPORT THIS
+import { Toaster } from 'react-hot-toast';
+import { lazy, Suspense } from 'react';
+import Navbar from './components/Navbar';
+import Footer from './components/Footer';
 
-import Landing from './pages/Landing';
-import UserForm from './pages/UserForm';
-import Dashboard from './pages/Dashboard';
-import Login from './pages/Login';
-import Grocery from './pages/Grocery';
-import PlanList from './pages/PlanList'; 
-import ComingSoon from './pages/ComingSoon'; 
+// Lazy load pages for better performance
+const Landing = lazy(() => import('./pages/Landing'));
+const UserForm = lazy(() => import('./pages/UserForm'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Login = lazy(() => import('./pages/Login'));
+const Grocery = lazy(() => import('./pages/Grocery'));
+const PlanList = lazy(() => import('./pages/PlanList'));
+const ComingSoon = lazy(() => import('./pages/ComingSoon'));
+const Privacy = lazy(() => import('./pages/Privacy'));
+const Terms = lazy(() => import('./pages/Terms'));
+const About = lazy(() => import('./pages/About'));
+
+// Loading component
+function PageLoader() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-green-50 to-white">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-green-600 mx-auto mb-4"></div>
+        <p className="text-gray-600 font-medium">Loading...</p>
+      </div>
+    </div>
+  );
+} 
 
 function App() {
   return (
     <BrowserRouter>
-      {/* 2. ADD THE TOASTER COMPONENT HERE */}
-      <Toaster position="top-center" reverseOrder={false} />
+      <Toaster
+        position="top-center"
+        reverseOrder={false}
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#fff',
+            color: '#363636',
+            fontWeight: '500',
+            borderRadius: '12px',
+            padding: '16px',
+            boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+          },
+          success: {
+            iconTheme: {
+              primary: '#16a34a',
+              secondary: '#fff',
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: '#dc2626',
+              secondary: '#fff',
+            },
+          },
+        }}
+      />
 
-      <Routes>
-        {/* Public Landing Page */}
-        <Route path="/" element={<Landing />} />
-        
-        {/* Create New Plan (Guest Flow) */}
-        <Route path="/start" element={<UserForm />} />
-        
-        {/* Login Page */}
-        <Route path="/login" element={<Login />} />
-        
-        {/* List of Saved Plans (After Login) */}
-        <Route path="/my-plans" element={<PlanList />} /> 
-        
-        {/* The Actual Plan Dashboard */}
-        <Route path="/plan" element={<Dashboard />} />
-        
-        {/* Grocery List View */}
-        <Route path="/grocery" element={<Grocery />} />
-
-        {/* E-Commerce Coming Soon Page */}
-        <Route path="/coming-soon" element={<ComingSoon />} /> 
-      </Routes>
+      <div className="flex flex-col min-h-screen">
+        <Navbar />
+        <main className="flex-grow">
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              <Route path="/" element={<Landing />} />
+              <Route path="/start" element={<UserForm />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/my-plans" element={<PlanList />} />
+              <Route path="/plan" element={<Dashboard />} />
+              <Route path="/grocery" element={<Grocery />} />
+              <Route path="/coming-soon" element={<ComingSoon />} />
+              <Route path="/privacy" element={<Privacy />} />
+              <Route path="/terms" element={<Terms />} />
+              <Route path="/about" element={<About />} />
+            </Routes>
+          </Suspense>
+        </main>
+        <Footer />
+      </div>
     </BrowserRouter>
   );
 }

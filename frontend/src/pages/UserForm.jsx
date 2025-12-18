@@ -114,25 +114,34 @@ export default function UserForm() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto py-10 px-4">
-      
-      <button 
-        onClick={() => navigate('/')} 
-        className="flex items-center text-gray-500 hover:text-green-600 mb-6 transition"
-      >
-        <ArrowLeft size={20} className="mr-2"/> Back to Home
-      </button>
+    <div className="min-h-screen bg-gradient-to-b from-green-50 to-white">
+      <div className="max-w-2xl mx-auto py-10 px-4">
 
-      <h2 className="text-3xl font-bold mb-2 text-center text-gray-800">Build Your Plan</h2>
-      <p className="text-center text-gray-500 mb-8">Tell us about your body & taste.</p>
-      
-      <div className="bg-white p-8 rounded-2xl shadow-xl space-y-6">
+        <button
+          onClick={() => navigate('/')}
+          className="flex items-center text-gray-500 hover:text-green-600 mb-6 transition-all duration-300 hover:translate-x-1 group"
+        >
+          <ArrowLeft size={20} className="mr-2 group-hover:-translate-x-1 transition-transform"/> Back to Home
+        </button>
+
+        <div className="text-center mb-8 animate-fade-in">
+          <h2 className="text-4xl font-extrabold mb-3 text-gray-800">Build Your Plan</h2>
+          <p className="text-lg text-gray-600">Tell us about your body & taste preferences</p>
+          <div className="mt-4 inline-flex items-center gap-2 bg-green-100 text-green-700 px-4 py-2 rounded-full text-sm font-semibold">
+            <Target size={16} />
+            <span>Personalized just for you</span>
+          </div>
+        </div>
+
+        <div className="bg-white p-8 rounded-2xl shadow-2xl border border-gray-100 space-y-6 animate-fade-in-delayed">
         
         {/* Section 1: Identity */}
-        <div className="space-y-2">
-            <label className="text-sm font-bold text-gray-700">Name <span className="text-red-500">*</span></label>
-            <input 
-                className="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+        <div className="space-y-2 group">
+            <label className="text-sm font-bold text-gray-700 flex items-center">
+              Name <span className="text-red-500 ml-1">*</span>
+            </label>
+            <input
+                className="w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all duration-300 hover:border-gray-300"
                 placeholder="e.g. Rahul"
                 value={formData.name}
                 onChange={e => setFormData({...formData, name: e.target.value})}
@@ -262,13 +271,24 @@ export default function UserForm() {
         </div>
 
         {/* Submit */}
-        <button 
+        <button
           onClick={handleSubmit}
           disabled={loading || analyzing}
-          className="w-full bg-green-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-green-700 transition flex justify-center shadow-lg transform hover:scale-[1.02]"
+          className="w-full bg-gradient-to-r from-green-600 to-green-500 text-white py-4 rounded-xl font-bold text-lg hover:from-green-700 hover:to-green-600 transition-all duration-300 flex justify-center shadow-xl hover:shadow-2xl transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none group"
         >
-          {loading ? <Loader2 className="animate-spin" /> : "Generate Personalized Plan"}
+          {loading ? (
+            <div className="flex items-center gap-2">
+              <Loader2 className="animate-spin" />
+              <span>Generating your plan...</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span>Generate Personalized Plan</span>
+              <ArrowLeft className="rotate-180 group-hover:translate-x-1 transition-transform" size={20} />
+            </div>
+          )}
         </button>
+        </div>
       </div>
     </div>
   );

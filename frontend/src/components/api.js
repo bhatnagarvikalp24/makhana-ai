@@ -1,15 +1,34 @@
 import axios from 'axios';
 
-// ✅ POINT TO LIVE BACKEND
-const API_BASE_URL = "https://makhana-ai.onrender.com"; 
+// ✅ SMART API URL SWITCHING
+const API_BASE_URL = import.meta.env.DEV
+    ? "http://localhost:8000"  // Development
+    : "https://makhana-ai.onrender.com";  // Production
 
 const api = axios.create({
     baseURL: API_BASE_URL,
     timeout: 180000,
     headers: {
         'Content-Type': 'application/json',
-    }
+    },
+    withCredentials: false
 });
+
+// Add response interceptor for better error handling
+api.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        console.error('API Error:', error);
+        if (error.code === 'ECONNABORTED') {
+            error.message = 'Request timeout - AI is taking too long';
+        } else if (error.response?.status === 500) {
+            error.message = 'Server error - Please try again';
+        } else if (!error.response) {
+            error.message = 'Network error - Check your connection';
+        }
+        return Promise.reject(error);
+    }
+);
 
 // 1. Generate Diet Plan
 export const generateDiet = (profileData) => {

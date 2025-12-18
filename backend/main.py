@@ -25,6 +25,13 @@ from dotenv import load_dotenv
 
 # --- 1. CONFIGURATION & SETUP ---
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -74,13 +81,28 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-    "https://makhana-ai.netlify.app", 
-    "http://localhost:5173"
-], # In production, replace "*" with your specific Netlify URL
+        "https://makhana-ai.netlify.app",
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5173"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add request timing middleware
+from fastapi import Request
+import time
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(process_time)
+    logger.info(f"{request.method} {request.url.path} - {process_time:.2f}s")
+    return response
 
 # --- 3. DATABASE MODELS (SQLAlchemy) ---
 # --- 3. DATABASE MODELS (UPDATED FOR COMMERCE) ---
@@ -194,26 +216,34 @@ class OrderRequest(BaseModel):
 
 # --- 5. AI HELPER FUNCTION ---
 
-def call_ai_json(system_prompt: str, user_prompt: str):
+def call_ai_json(system_prompt: str, user_prompt: str, max_retries: int = 2):
     """
-    Helper to call OpenAI with JSON mode enforcement.
+    Helper to call OpenAI with JSON mode enforcement and retry logic.
     """
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini", # Use "gpt-4-turbo" for better results if budget allows
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0.7
-        )
-        content = response.choices[0].message.content
-        return json.loads(content)
-    except Exception as e:
-        print(f"AI Error: {e}")
-        # Fallback JSON if AI fails
-        return {"error": "AI generation failed", "details": str(e)}
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Calling AI API (attempt {attempt + 1}/{max_retries})")
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.7,
+                max_tokens=2000  # Optimize token usage
+            )
+            content = response.choices[0].message.content
+            result = json.loads(content)
+            logger.info("AI API call successful")
+            return result
+        except Exception as e:
+            logger.error(f"AI Error (attempt {attempt + 1}): {e}")
+            if attempt == max_retries - 1:
+                # Fallback JSON if all retries fail
+                return {"error": "AI generation failed", "details": str(e)}
+            time.sleep(1)  # Wait before retry
+    return {"error": "AI generation failed after retries"}
 
 # --- 6. API ENDPOINTS ---
 
@@ -276,25 +306,33 @@ async def generate_diet(profile: UserProfile, db: Session = Depends(get_db)):
     """
     Generates a plan where the SUMMARY explains the connection between Goal + Stats + Report.
     """
-    
-    # 1. LOGIC: Check Identity & Create/Update User
-    db_user = db.query(User).filter(User.phone == profile.phone).first()
-    
-    if db_user:
-        db_user.name = profile.name
-        db_user.profile_data = profile.json()
-        db_user.medical_issues = json.dumps(profile.medical_manual)
-    else:
-        db_user = User(
-            name=profile.name,
-            phone=profile.phone,
-            profile_data=profile.json(),
-            medical_issues=json.dumps(profile.medical_manual)
-        )
-        db.add(db_user)
-    
-    db.commit()
-    db.refresh(db_user)
+    try:
+        logger.info(f"Generating diet plan for {profile.name} (phone: {profile.phone})")
+
+        # 1. LOGIC: Check Identity & Create/Update User
+        db_user = db.query(User).filter(User.phone == profile.phone).first()
+
+        if db_user:
+            db_user.name = profile.name
+            db_user.profile_data = profile.json()
+            db_user.medical_issues = json.dumps(profile.medical_manual)
+            logger.info(f"Updated existing user: {db_user.id}")
+        else:
+            db_user = User(
+                name=profile.name,
+                phone=profile.phone,
+                profile_data=profile.json(),
+                medical_issues=json.dumps(profile.medical_manual)
+            )
+            db.add(db_user)
+            logger.info("Created new user")
+
+        db.commit()
+        db.refresh(db_user)
+    except Exception as e:
+        logger.error(f"Database error: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Database error occurred")
 
     # 2. AI GENERATION - "REASONING ENGINE" LOGIC
     system_prompt = f"""
@@ -345,24 +383,38 @@ async def generate_diet(profile: UserProfile, db: Session = Depends(get_db)):
     Medical Tags: {profile.medical_manual}
     """
 
-    print(f"--- Generating {profile.goal} Plan for {profile.name} ---") 
-    diet_plan_json = call_ai_json(system_prompt, user_prompt)
-    
-    # 3. SAVE PLAN
-    db_plan = DietPlan(
-        user_id=db_user.id,
-        plan_json=json.dumps(diet_plan_json),
-        title=f"{profile.goal} - {profile.region} Plan"
-    )
-    db.add(db_plan)
-    db.commit()
-    db.refresh(db_plan)
+    try:
+        logger.info(f"Generating {profile.goal} plan for {profile.name}")
+        diet_plan_json = call_ai_json(system_prompt, user_prompt)
 
-    return {
-        "user_id": db_user.id,
-        "plan_id": db_plan.id,
-        "diet": diet_plan_json
-    }
+        # Check for AI errors
+        if "error" in diet_plan_json:
+            logger.error(f"AI generation failed: {diet_plan_json}")
+            raise HTTPException(status_code=500, detail="Failed to generate diet plan")
+
+        # 3. SAVE PLAN
+        db_plan = DietPlan(
+            user_id=db_user.id,
+            plan_json=json.dumps(diet_plan_json),
+            title=f"{profile.goal} - {profile.region} Plan"
+        )
+        db.add(db_plan)
+        db.commit()
+        db.refresh(db_plan)
+
+        logger.info(f"Plan created successfully: {db_plan.id}")
+
+        return {
+            "user_id": db_user.id,
+            "plan_id": db_plan.id,
+            "diet": diet_plan_json
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating plan: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to generate and save plan")
 @app.post("/generate-grocery/{plan_id}")
 async def generate_grocery(plan_id: int, db: Session = Depends(get_db)):
     """

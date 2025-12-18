@@ -89,56 +89,60 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 relative">
-      
-      {/* --- HEADER --- */}
-      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-        <button onClick={() => navigate('/start')} className="flex items-center text-gray-500 hover:text-green-600 self-start md:self-auto">
-            <ArrowLeft size={16} className="mr-1"/> New Plan
-        </button>
-        
-        <h1 className="text-2xl font-bold text-green-800 text-center">Your 7-Day Plan 🥗</h1>
-        
-        <div className="flex gap-2">
+    <div className="min-h-screen bg-gradient-to-b from-green-50 to-white">
+      <div className="max-w-4xl mx-auto px-4 py-8 relative">
+
+        {/* --- HEADER --- */}
+        <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 animate-fade-in">
+          <button onClick={() => navigate('/start')} className="flex items-center text-gray-500 hover:text-green-600 self-start md:self-auto transition-all duration-300 group">
+              <ArrowLeft size={16} className="mr-1 group-hover:-translate-x-1 transition-transform"/> New Plan
+          </button>
+
+          <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-emerald-500 text-center">Your 7-Day Plan 🥗</h1>
+
+          <div className="flex gap-2 flex-wrap justify-center">
             {/* DOWNLOAD PDF BUTTON */}
-            <button 
+            <button
                 onClick={handleDownloadPDF}
-                className="bg-green-50 border border-green-200 text-green-700 px-4 py-2 rounded-lg font-bold flex items-center hover:bg-green-100 transition"
+                className="bg-green-50 border border-green-200 text-green-700 px-4 py-2.5 rounded-xl font-bold flex items-center hover:bg-green-100 transition-all duration-300 hover:shadow-md"
             >
                 <Download size={18} className="mr-2"/> PDF
             </button>
 
-            <button 
+            <button
                 onClick={() => setShowSaveModal(true)}
-                className="bg-white border border-green-600 text-green-600 px-4 py-2 rounded-lg font-bold flex items-center hover:bg-green-50 transition"
+                className="bg-white border-2 border-green-600 text-green-600 px-4 py-2.5 rounded-xl font-bold flex items-center hover:bg-green-50 transition-all duration-300 hover:shadow-md"
             >
                 <Save size={18} className="mr-2"/> Save
             </button>
-            
-            <button 
+
+            <button
                 onClick={handleGrocery}
                 disabled={loading}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold flex items-center hover:bg-green-700 disabled:opacity-50"
+                className="bg-gradient-to-r from-green-600 to-green-500 text-white px-4 py-2.5 rounded-xl font-bold flex items-center hover:from-green-700 hover:to-green-600 disabled:opacity-50 transition-all duration-300 hover:shadow-lg"
             >
                 {loading ? <Loader2 className="animate-spin mr-2"/> : <ShoppingCart size={18} className="mr-2"/>}
                 Grocery
             </button>
+          </div>
         </div>
-      </div>
 
-      {/* --- PRINTABLE AREA START --- */}
-      <div id="printable-area">
-          
+        {/* --- PRINTABLE AREA START --- */}
+        <div id="printable-area">
+
           {/* Summary Card */}
           {state.plan.summary && (
-            <div className="bg-gradient-to-r from-green-50 to-blue-50 p-6 rounded-xl border border-green-100 mb-8 shadow-sm print:shadow-none">
-                <div className="flex items-start gap-3">
-                    <div className="bg-white p-2 rounded-full shadow-sm text-green-600 mt-1">
-                        <Stethoscope size={24} />
+            <div className="bg-gradient-to-r from-green-50 via-emerald-50 to-blue-50 p-6 md:p-8 rounded-2xl border-2 border-green-200 mb-8 shadow-xl print:shadow-none animate-fade-in-delayed">
+                <div className="flex items-start gap-4">
+                    <div className="bg-white p-3 rounded-xl shadow-md text-green-600 mt-1">
+                        <Stethoscope size={28} />
                     </div>
                     <div>
-                        <h3 className="font-bold text-lg text-green-900 mb-1">Chief Nutritionist's Note</h3>
-                        <p className="text-gray-700 leading-relaxed italic">
+                        <h3 className="font-bold text-xl text-green-900 mb-2 flex items-center gap-2">
+                          Chief Nutritionist's Note
+                          <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full font-semibold">AI Generated</span>
+                        </h3>
+                        <p className="text-gray-700 leading-relaxed text-base">
                             "{state.plan.summary}"
                         </p>
                     </div>
@@ -147,17 +151,20 @@ export default function Dashboard() {
           )}
 
           {/* Meal Cards Grid */}
-          <div className="grid gap-6 md:grid-cols-2 print:block print:space-y-4">
+          <div className="grid gap-6 md:grid-cols-2 print:block print:space-y-4 animate-fade-in-delayed-more">
             {state.plan.days.map((day, idx) => (
-               <div key={idx} className="bg-white p-5 rounded-xl border border-green-100 shadow-sm hover:shadow-md transition print:break-inside-avoid print:shadow-none print:border-gray-200 print:mb-4">
-                   <div className="flex justify-between items-center border-b border-green-100 pb-2 mb-3">
-                       <h3 className="font-bold text-lg text-green-800">Day {day.day || idx + 1}</h3>
+               <div key={idx} className="bg-white p-6 rounded-2xl border border-green-100 shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1 print:break-inside-avoid print:shadow-none print:border-gray-200 print:mb-4 group">
+                   <div className="flex justify-between items-center border-b-2 border-green-100 pb-3 mb-4">
+                       <h3 className="font-bold text-xl text-green-800 group-hover:text-green-600 transition-colors">Day {day.day || idx + 1}</h3>
+                       <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">
+                         {idx + 1}/7
+                       </div>
                    </div>
-                   <div className="space-y-2 text-sm text-gray-700">
-                       <p><span className="font-semibold text-green-600">Breakfast:</span> {day.breakfast || day.meals?.breakfast || "Not planned"}</p>
-                       <p><span className="font-semibold text-green-600">Lunch:</span> {day.lunch || day.meals?.lunch || "Not planned"}</p>
-                       <p><span className="font-semibold text-green-600">Snack:</span> {day.snack || day.meals?.snack || "Not planned"}</p>
-                       <p><span className="font-semibold text-green-600">Dinner:</span> {day.dinner || day.meals?.dinner || "Not planned"}</p>
+                   <div className="space-y-3 text-sm text-gray-700">
+                       <p className="leading-relaxed"><span className="font-bold text-green-600">🌅 Breakfast:</span> {day.breakfast || day.meals?.breakfast || "Not planned"}</p>
+                       <p className="leading-relaxed"><span className="font-bold text-green-600">🍛 Lunch:</span> {day.lunch || day.meals?.lunch || "Not planned"}</p>
+                       <p className="leading-relaxed"><span className="font-bold text-green-600">🍪 Snack:</span> {day.snack || day.meals?.snack || "Not planned"}</p>
+                       <p className="leading-relaxed"><span className="font-bold text-green-600">🌙 Dinner:</span> {day.dinner || day.meals?.dinner || "Not planned"}</p>
                    </div>
                </div>
             ))}
@@ -228,6 +235,7 @@ export default function Dashboard() {
         </div>
       )}
 
+      </div>
     </div>
   );
 }
