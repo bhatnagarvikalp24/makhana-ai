@@ -137,14 +137,44 @@ export default function Dashboard() {
                     <div className="bg-white p-3 rounded-xl shadow-md text-green-600 mt-1">
                         <Stethoscope size={28} />
                     </div>
-                    <div>
-                        <h3 className="font-bold text-xl text-green-900 mb-2 flex items-center gap-2">
-                          Chief Nutritionist's Note
-                          <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full font-semibold">AI Generated</span>
+                    <div className="flex-1">
+                        <h3 className="font-bold text-xl text-green-900 mb-2 flex items-center gap-2 flex-wrap">
+                          Your Personalized Plan
+                          <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full font-semibold">AI Crafted</span>
                         </h3>
-                        <p className="text-gray-700 leading-relaxed text-base">
-                            "{state.plan.summary}"
+                        <p className="text-gray-700 leading-relaxed text-base mb-4">
+                            {state.plan.summary}
                         </p>
+
+                        {/* Daily Nutrition Targets */}
+                        {state.plan.daily_targets && (
+                          <div className="bg-white/80 p-4 rounded-xl border border-green-100 mt-4">
+                            <h4 className="font-bold text-sm text-green-800 mb-3">📊 Daily Nutrition Targets</h4>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                              <div className="text-center">
+                                <div className="font-bold text-green-700">{state.plan.daily_targets.calories}</div>
+                                <div className="text-xs text-gray-600">Calories</div>
+                              </div>
+                              <div className="text-center">
+                                <div className="font-bold text-green-700">{state.plan.daily_targets.protein}</div>
+                                <div className="text-xs text-gray-600">Protein</div>
+                              </div>
+                              <div className="text-center">
+                                <div className="font-bold text-green-700 text-xs">{state.plan.daily_targets.carbs_guidance}</div>
+                                <div className="text-xs text-gray-600">Carbs</div>
+                              </div>
+                              <div className="text-center">
+                                <div className="font-bold text-green-700 text-xs">{state.plan.daily_targets.fats_guidance}</div>
+                                <div className="text-xs text-gray-600">Fats</div>
+                              </div>
+                            </div>
+                            {state.plan.daily_targets.medical_adjustments && (
+                              <div className="mt-3 pt-3 border-t border-green-100 text-xs text-gray-600">
+                                <span className="font-semibold text-green-700">Medical Note:</span> {state.plan.daily_targets.medical_adjustments}
+                              </div>
+                            )}
+                          </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -161,14 +191,122 @@ export default function Dashboard() {
                        </div>
                    </div>
                    <div className="space-y-3 text-sm text-gray-700">
+                       {day.early_morning && (
+                         <p className="leading-relaxed"><span className="font-bold text-orange-500">☀️ Early Morning:</span> {day.early_morning}</p>
+                       )}
                        <p className="leading-relaxed"><span className="font-bold text-green-600">🌅 Breakfast:</span> {day.breakfast || day.meals?.breakfast || "Not planned"}</p>
+                       {day.mid_morning && (
+                         <p className="leading-relaxed"><span className="font-bold text-blue-500">🍎 Mid-Morning:</span> {day.mid_morning}</p>
+                       )}
                        <p className="leading-relaxed"><span className="font-bold text-green-600">🍛 Lunch:</span> {day.lunch || day.meals?.lunch || "Not planned"}</p>
-                       <p className="leading-relaxed"><span className="font-bold text-green-600">🍪 Snack:</span> {day.snack || day.meals?.snack || "Not planned"}</p>
-                       <p className="leading-relaxed"><span className="font-bold text-green-600">🌙 Dinner:</span> {day.dinner || day.meals?.dinner || "Not planned"}</p>
+                       <p className="leading-relaxed"><span className="font-bold text-amber-600">☕ Evening Snack:</span> {day.evening_snack || day.snack || day.meals?.snack || "Not planned"}</p>
+                       <p className="leading-relaxed"><span className="font-bold text-indigo-600">🌙 Dinner:</span> {day.dinner || day.meals?.dinner || "Not planned"}</p>
+                       {day.before_bed && (
+                         <p className="leading-relaxed"><span className="font-bold text-purple-500">🌜 Before Bed:</span> {day.before_bed}</p>
+                       )}
                    </div>
                </div>
             ))}
           </div>
+
+          {/* Activity Guidance */}
+          {state.plan.activity_guidance && (
+            <div className="mt-8 bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-2xl border border-blue-200 print:break-inside-avoid">
+              <h3 className="font-bold text-lg text-blue-900 mb-4 flex items-center">
+                🏋️ Activity Guidance
+              </h3>
+              <div className="grid md:grid-cols-3 gap-4 text-sm">
+                <div className="bg-white/80 p-3 rounded-lg">
+                  <div className="font-semibold text-blue-700 mb-1">Frequency</div>
+                  <div className="text-gray-700">{state.plan.activity_guidance.training_frequency}</div>
+                </div>
+                <div className="bg-white/80 p-3 rounded-lg">
+                  <div className="font-semibold text-blue-700 mb-1">Type</div>
+                  <div className="text-gray-700">{state.plan.activity_guidance.type}</div>
+                </div>
+                <div className="bg-white/80 p-3 rounded-lg md:col-span-1">
+                  <div className="font-semibold text-blue-700 mb-1">Tips</div>
+                  <div className="text-gray-700">{state.plan.activity_guidance.beginner_tips}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Expected Results */}
+          {state.plan.expected_results && (
+            <div className="mt-8 bg-gradient-to-r from-emerald-50 to-green-50 p-6 rounded-2xl border border-emerald-200 print:break-inside-avoid">
+              <h3 className="font-bold text-lg text-emerald-900 mb-4 flex items-center">
+                📈 Expected Results & Milestones
+              </h3>
+              <div className="space-y-3 text-sm">
+                <div className="flex items-start gap-3 bg-white/80 p-3 rounded-lg">
+                  <span className="text-2xl">⚡</span>
+                  <div>
+                    <div className="font-semibold text-emerald-700">Weekly Progress</div>
+                    <div className="text-gray-700">{state.plan.expected_results.weekly_weight_change}</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 bg-white/80 p-3 rounded-lg">
+                  <span className="text-2xl">👀</span>
+                  <div>
+                    <div className="font-semibold text-emerald-700">Visible Changes</div>
+                    <div className="text-gray-700">{state.plan.expected_results.visible_changes}</div>
+                  </div>
+                </div>
+                <div className="grid md:grid-cols-3 gap-3">
+                  <div className="bg-white/80 p-3 rounded-lg">
+                    <div className="font-semibold text-emerald-700 mb-1">30 Days</div>
+                    <div className="text-gray-700 text-xs">{state.plan.expected_results["30_day_milestone"]}</div>
+                  </div>
+                  <div className="bg-white/80 p-3 rounded-lg">
+                    <div className="font-semibold text-emerald-700 mb-1">60 Days</div>
+                    <div className="text-gray-700 text-xs">{state.plan.expected_results["60_day_milestone"]}</div>
+                  </div>
+                  <div className="bg-white/80 p-3 rounded-lg">
+                    <div className="font-semibold text-emerald-700 mb-1">90 Days</div>
+                    <div className="text-gray-700 text-xs">{state.plan.expected_results["90_day_milestone"]}</div>
+                  </div>
+                </div>
+                {state.plan.expected_results.plateau_warning && (
+                  <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-lg flex items-start gap-2">
+                    <span className="text-yellow-600">⚠️</span>
+                    <div className="text-xs text-gray-700">
+                      <span className="font-semibold">Note:</span> {state.plan.expected_results.plateau_warning}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Important Notes & Safety */}
+          {state.plan.important_notes && (
+            <div className="mt-8 bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-2xl border border-purple-200 print:break-inside-avoid">
+              <h3 className="font-bold text-lg text-purple-900 mb-4 flex items-center">
+                💡 Important Notes & Safety
+              </h3>
+              <div className="grid md:grid-cols-2 gap-4 text-sm">
+                <div className="bg-white/80 p-3 rounded-lg">
+                  <div className="font-semibold text-purple-700 mb-1">💧 Hydration</div>
+                  <div className="text-gray-700">{state.plan.important_notes.hydration}</div>
+                </div>
+                <div className="bg-white/80 p-3 rounded-lg">
+                  <div className="font-semibold text-purple-700 mb-1">😴 Sleep</div>
+                  <div className="text-gray-700">{state.plan.important_notes.sleep}</div>
+                </div>
+                {state.plan.important_notes.medical_disclaimer && (
+                  <div className="bg-white/80 p-3 rounded-lg md:col-span-2">
+                    <div className="font-semibold text-purple-700 mb-1">⚕️ Medical Disclaimer</div>
+                    <div className="text-gray-700">{state.plan.important_notes.medical_disclaimer}</div>
+                  </div>
+                )}
+                <div className="bg-white/80 p-3 rounded-lg md:col-span-2">
+                  <div className="font-semibold text-purple-700 mb-1">📅 Reassessment</div>
+                  <div className="text-gray-700">{state.plan.important_notes.reassessment}</div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* --- LEGAL DISCLAIMER (FOOTER) --- */}
           <div className="mt-12 p-4 bg-gray-50 rounded-lg border border-gray-100 text-xs text-gray-500 text-center">
@@ -176,7 +314,7 @@ export default function Dashboard() {
                   <ShieldCheck size={16} className="mr-1"/> Medical Disclaimer
               </div>
               <p>
-                  This diet plan is generated by AI for informational purposes only. It is not a substitute for professional medical advice, diagnosis, or treatment. 
+                  This diet plan is generated by AI for informational purposes only. It is not a substitute for professional medical advice, diagnosis, or treatment.
                   Always seek the advice of your physician or other qualified health provider with any questions you may have regarding a medical condition.
               </p>
           </div>

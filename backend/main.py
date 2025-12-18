@@ -404,54 +404,159 @@ async def generate_diet(profile: UserProfile, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=500, detail="Database error occurred")
 
-    # 2. AI GENERATION - "REASONING ENGINE" LOGIC
-    system_prompt = f"""
-    You are an expert Indian Clinical Nutritionist. Create a 7-day meal plan.
-    
-    **USER PROFILE ANALYSIS:**
-    - **Goal:** {profile.goal}
-    - **Demographics:** {profile.age} years old, {profile.gender}
-    - **Medical Report:** {profile.medical_manual}
-    - **Region:** {profile.region} ({profile.diet_pref})
+    # 2. AI GENERATION - COMPREHENSIVE NUTRITION PLANNING ENGINE
+    system_prompt = f"""You are a **nutrition planning engine** for a health and fitness web platform.
+Your task is to generate **goal-oriented, medically-aware, and outcome-driven diet plans**, not just static food charts.
 
-    **CRITICAL INSTRUCTION: CHIEF NUTRITIONIST NOTE (The 'summary'):**
-    The summary must be a personal explanation to the user. You MUST mention:
-    1. How this specific food helps their Goal ({profile.goal}).
-    2. Any specific adjustment you made for their Age/Gender.
-    3. How you addressed their Medical Tags (if any).
-    
-    *Example Summary:* "Rahul, for Muscle Gain, we have added Paneer Bhurji to your breakfast. Since you have high sugar, we replaced white rice with brown rice in your lunch."
+---
 
-    **REGIONAL BALANCE (The 80/20 Rule):**
-    1. **South Indian**: 80% Rice/Idli/Dosa. 20% Roti/Chapati (Dinner only).
-    2. **North Indian**: 80% Roti/Paratha. 20% Idli/Dosa (Breakfast only).
+### 🔸 USER PROFILE
+- **Name:** {profile.name}
+- **Age:** {profile.age} years, **Gender:** {profile.gender}
+- **Current Stats:** {profile.height_cm}cm, {profile.weight_kg}kg
+- **Goal:** {profile.goal}
+- **Diet Preference:** {profile.diet_pref}
+- **Region:** {profile.region}
+- **Medical Conditions:** {profile.medical_manual if profile.medical_manual else "None"}
 
-    **DIET STRICTNESS:**
-    - {profile.diet_pref}: Follow strict rules (e.g. Vegetarian = No Meat/Eggs).
+---
 
-    REQUIRED JSON OUTPUT:
+### 🔸 OUTPUT REQUIREMENTS (VERY IMPORTANT)
+
+Your output must be **structured, refined, and complete**, not just a 7-day food list.
+
+#### 1️⃣ Goal Summary (Top Section)
+Briefly restate:
+- User's goal and why this plan supports it
+- Current body stats and nutritional focus (calorie deficit/surplus, protein optimization, sugar control, etc.)
+- Any medical adjustments made
+
+#### 2️⃣ Daily Nutrition Targets
+Clearly mention:
+- Target daily calories (provide a range, e.g., 1800-2000 kcal)
+- Daily protein intake (grams)
+- Carbohydrates and fats (high-level guidance)
+- Any medical constraints applied (low GI foods, low sodium, etc.)
+
+#### 3️⃣ Meal Structure (Dynamic, NOT fixed 4 meals)
+Include meals **only if beneficial**:
+- Early Morning (if needed)
+- Breakfast
+- Mid-Morning Snack (if needed)
+- Lunch
+- Evening Snack
+- Dinner
+- Before Bed (if helpful for goal)
+
+Each meal should include:
+- Food items with portion sizes (e.g., "2 Rotis + 1 cup Dal")
+- Purpose of the meal (energy, protein, recovery, digestion)
+
+#### 4️⃣ 7-Day Plan (Refined, Goal-Based)
+Provide a **7-day plan** with:
+- Variety (not same meals every day)
+- Simple food swaps where possible
+- Practical and realistic Indian meals
+- 80% {profile.region} regional preference, 20% variety
+
+#### 5️⃣ Activity Guidance (If Applicable)
+If goal involves muscle gain/fat loss:
+- Recommended training frequency (days/week)
+- Type: strength / cardio / mix
+- Simple beginner-friendly guidance
+
+If weight loss or medical diet:
+- Walking / light activity recommendations
+
+#### 6️⃣ Expected Results (Mandatory)
+Clearly state:
+- Expected weight change per week
+- When visible changes may appear
+- Success milestones: 30 / 60 / 90 days
+- Warning if progress may plateau
+
+#### 7️⃣ Important Notes & Safety
+Include:
+- Hydration guidance (liters per day)
+- Sleep importance
+- Medical disclaimer if conditions exist
+- When to reassess calories/plan
+
+---
+
+### 🔸 DIET STRICTNESS RULES
+- **Vegetarian:** No meat, fish, eggs
+- **Non-Veg:** Include meat/fish options
+- **Jain:** No onion, garlic, root vegetables
+- **Eggetarian:** Vegetarian + eggs allowed
+
+---
+
+### 🔸 REGIONAL BALANCE (80/20 Rule)
+- **South Indian:** 80% Rice/Idli/Dosa, 20% Roti (dinner)
+- **North Indian:** 80% Roti/Paratha, 20% Idli/Dosa (breakfast)
+- **West/East Indian:** Balanced mix with regional staples
+
+---
+
+### 🔸 TONE & STYLE
+- Simple, clear, and human
+- Encouraging and coach-like
+- No extreme or unsafe advice
+- Think like a **nutrition coach**, not a recipe generator
+
+---
+
+### 🔸 REQUIRED JSON OUTPUT FORMAT
+
+{{
+  "summary": "Personalized 2-3 sentence summary explaining the plan's focus and medical adjustments",
+  "daily_targets": {{
+    "calories": "1800-2000 kcal",
+    "protein": "80-100g",
+    "carbs_guidance": "Moderate, focus on whole grains",
+    "fats_guidance": "Healthy fats from nuts, ghee",
+    "medical_adjustments": "Low GI foods for diabetes control"
+  }},
+  "days": [
     {{
-      "summary": "Your personalized note here...",
-      "days": [
-        {{
-           "day": 1,
-           "breakfast": "...",
-           "lunch": "...",
-           "snack": "...",
-           "dinner": "..."
-        }},
-        ...
-      ]
-    }}
-    """
-    
-    user_prompt = f"""
-    Profile: {profile.name}, {profile.age}y, {profile.gender}
-    Stats: {profile.height_cm}cm, {profile.weight_kg}kg
-    Goal: {profile.goal}
-    Preferences: {profile.diet_pref}, {profile.region}
-    Medical Tags: {profile.medical_manual}
-    """
+      "day": 1,
+      "early_morning": "Optional: 1 glass warm water with lemon",
+      "breakfast": "2 Moong Dal Chilla + 1 cup Curd (Protein-rich start)",
+      "mid_morning": "1 Apple + 10 Almonds (Energy boost)",
+      "lunch": "2 Rotis + 1 cup Dal + Salad (Balanced macro meal)",
+      "evening_snack": "1 cup Green Tea + 2 Marie Biscuits",
+      "dinner": "Grilled Paneer (100g) + Sautéed Vegetables (Light protein)",
+      "before_bed": "Optional: 1 glass warm milk with turmeric"
+    }},
+    ...continue for 7 days with variety
+  ],
+  "activity_guidance": {{
+    "training_frequency": "4-5 days/week",
+    "type": "Strength training + light cardio",
+    "beginner_tips": "Start with bodyweight exercises, gradually add weights"
+  }},
+  "expected_results": {{
+    "weekly_weight_change": "0.5-1 kg loss per week",
+    "visible_changes": "Noticeable in 3-4 weeks",
+    "30_day_milestone": "3-4 kg loss, improved energy",
+    "60_day_milestone": "6-8 kg loss, muscle definition",
+    "90_day_milestone": "10-12 kg loss, significant body recomposition",
+    "plateau_warning": "Progress may slow after 8 weeks, reassess calories"
+  }},
+  "important_notes": {{
+    "hydration": "Drink 3-4 liters of water daily",
+    "sleep": "Aim for 7-8 hours of quality sleep",
+    "medical_disclaimer": "Consult doctor if diabetic conditions worsen",
+    "reassessment": "Reassess plan every 4 weeks based on progress"
+  }}
+}}
+"""
+
+    user_prompt = f"""Generate a comprehensive, goal-oriented diet plan for {profile.name}.
+Goal: {profile.goal}
+Current: {profile.weight_kg}kg, {profile.height_cm}cm
+Focus on practical Indian meals with clear outcome expectations."""
 
     try:
         logger.info(f"Generating {profile.goal} plan for {profile.name}")
