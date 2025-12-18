@@ -1,20 +1,28 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ShoppingCart, ArrowLeft, Loader2, Save, X, Stethoscope, Download, ShieldCheck } from 'lucide-react';
+import { ShoppingCart, ArrowLeft, Loader2, Save, X, Stethoscope, Download, ShieldCheck, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import axios from 'axios';
-import html2pdf from 'html2pdf.js'; 
+import html2pdf from 'html2pdf.js';
 import toast from 'react-hot-toast'; // <--- 1. IMPORT TOAST
 import { generateGrocery } from '../components/api';
+
+const API_URL = 'https://makhana-ai.onrender.com';
 
 export default function Dashboard() {
   const { state } = useLocation();
   const navigate = useNavigate();
-  
+
   const [loading, setLoading] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [phone, setPhone] = useState('');
   const [planTitle, setPlanTitle] = useState('');
   const [saveStatus, setSaveStatus] = useState('idle');
+
+  // Swap Modal States
+  const [showSwapModal, setShowSwapModal] = useState(false);
+  const [swapLoading, setSwapLoading] = useState(false);
+  const [swapAlternatives, setSwapAlternatives] = useState([]);
+  const [currentSwapMeal, setCurrentSwapMeal] = useState({ text: '', type: '', dayIndex: -1, mealKey: '' });
 
   // SAFETY CHECKS
   if (!state?.plan) {
@@ -78,7 +86,7 @@ export default function Dashboard() {
         setSaveStatus('success');
         toast.dismiss(savingToast);
         toast.success("Plan Saved Permanently! 💾"); // Success toast
-        
+
         setTimeout(() => setShowSaveModal(false), 2000);
     } catch (error) {
         console.error(error);
@@ -86,6 +94,54 @@ export default function Dashboard() {
         toast.dismiss(savingToast);
         toast.error("Could not save plan. Is the backend running?"); // Error toast
     }
+  };
+
+  // SWAP MEAL HANDLER
+  const handleSwapMeal = async (mealText, mealType, dayIndex, mealKey) => {
+    setCurrentSwapMeal({ text: mealText, type: mealType, dayIndex, mealKey });
+    setShowSwapModal(true);
+    setSwapLoading(true);
+    setSwapAlternatives([]);
+
+    try {
+      const userProfile = state.profile || {
+        diet_pref: 'vegetarian',
+        region: 'North Indian',
+        goal: 'balanced diet',
+        age: 30,
+        gender: 'male',
+        medical_manual: 'None'
+      };
+
+      const response = await axios.post(`${API_URL}/swap-meal`, {
+        meal_text: mealText,
+        meal_type: mealType,
+        user_profile: userProfile
+      });
+
+      setSwapAlternatives(response.data.alternatives || []);
+    } catch (error) {
+      console.error('Swap error:', error);
+      toast.error("Could not generate alternatives. Please try again.");
+      setShowSwapModal(false);
+    } finally {
+      setSwapLoading(false);
+    }
+  };
+
+  // Apply swap to plan
+  const applySwap = (alternativeDescription) => {
+    toast.success("Meal swapped! Note: This is a preview. Save your plan to keep changes.");
+
+    // Update the meal in the state (note: this is client-side only for now)
+    const updatedDays = [...state.plan.days];
+    updatedDays[currentSwapMeal.dayIndex][currentSwapMeal.mealKey] = alternativeDescription;
+
+    // Close modal
+    setShowSwapModal(false);
+
+    // Note: To persist this, we'd need to update the backend plan
+    // For MVP, we're just showing the swap capability
   };
 
   return (
@@ -192,17 +248,86 @@ export default function Dashboard() {
                    </div>
                    <div className="space-y-3 text-sm text-gray-700">
                        {day.early_morning && (
-                         <p className="leading-relaxed"><span className="font-bold text-orange-500">☀️ Early Morning:</span> {day.early_morning}</p>
+                         <div className="leading-relaxed flex justify-between items-start group/meal print:block">
+                           <p className="flex-1"><span className="font-bold text-orange-500">☀️ Early Morning:</span> {day.early_morning}</p>
+                           <button
+                             onClick={() => handleSwapMeal(day.early_morning, 'early_morning', idx, 'early_morning')}
+                             className="opacity-0 group-hover/meal:opacity-100 transition-opacity ml-2 text-green-600 hover:text-green-700 print:hidden"
+                             title="Find alternatives"
+                           >
+                             <RefreshCw size={14} />
+                           </button>
+                         </div>
                        )}
-                       <p className="leading-relaxed"><span className="font-bold text-green-600">🌅 Breakfast:</span> {day.breakfast || day.meals?.breakfast || "Not planned"}</p>
+
+                       <div className="leading-relaxed flex justify-between items-start group/meal print:block">
+                         <p className="flex-1"><span className="font-bold text-green-600">🌅 Breakfast:</span> {day.breakfast || day.meals?.breakfast || "Not planned"}</p>
+                         <button
+                           onClick={() => handleSwapMeal(day.breakfast || day.meals?.breakfast, 'breakfast', idx, 'breakfast')}
+                           className="opacity-0 group-hover/meal:opacity-100 transition-opacity ml-2 text-green-600 hover:text-green-700 print:hidden"
+                           title="Find alternatives"
+                         >
+                           <RefreshCw size={14} />
+                         </button>
+                       </div>
+
                        {day.mid_morning && (
-                         <p className="leading-relaxed"><span className="font-bold text-blue-500">🍎 Mid-Morning:</span> {day.mid_morning}</p>
+                         <div className="leading-relaxed flex justify-between items-start group/meal print:block">
+                           <p className="flex-1"><span className="font-bold text-blue-500">🍎 Mid-Morning:</span> {day.mid_morning}</p>
+                           <button
+                             onClick={() => handleSwapMeal(day.mid_morning, 'mid_morning', idx, 'mid_morning')}
+                             className="opacity-0 group-hover/meal:opacity-100 transition-opacity ml-2 text-green-600 hover:text-green-700 print:hidden"
+                             title="Find alternatives"
+                           >
+                             <RefreshCw size={14} />
+                           </button>
+                         </div>
                        )}
-                       <p className="leading-relaxed"><span className="font-bold text-green-600">🍛 Lunch:</span> {day.lunch || day.meals?.lunch || "Not planned"}</p>
-                       <p className="leading-relaxed"><span className="font-bold text-amber-600">☕ Evening Snack:</span> {day.evening_snack || day.snack || day.meals?.snack || "Not planned"}</p>
-                       <p className="leading-relaxed"><span className="font-bold text-indigo-600">🌙 Dinner:</span> {day.dinner || day.meals?.dinner || "Not planned"}</p>
+
+                       <div className="leading-relaxed flex justify-between items-start group/meal print:block">
+                         <p className="flex-1"><span className="font-bold text-green-600">🍛 Lunch:</span> {day.lunch || day.meals?.lunch || "Not planned"}</p>
+                         <button
+                           onClick={() => handleSwapMeal(day.lunch || day.meals?.lunch, 'lunch', idx, 'lunch')}
+                           className="opacity-0 group-hover/meal:opacity-100 transition-opacity ml-2 text-green-600 hover:text-green-700 print:hidden"
+                           title="Find alternatives"
+                         >
+                           <RefreshCw size={14} />
+                         </button>
+                       </div>
+
+                       <div className="leading-relaxed flex justify-between items-start group/meal print:block">
+                         <p className="flex-1"><span className="font-bold text-amber-600">☕ Evening Snack:</span> {day.evening_snack || day.snack || day.meals?.snack || "Not planned"}</p>
+                         <button
+                           onClick={() => handleSwapMeal(day.evening_snack || day.snack || day.meals?.snack, 'snack', idx, 'evening_snack')}
+                           className="opacity-0 group-hover/meal:opacity-100 transition-opacity ml-2 text-green-600 hover:text-green-700 print:hidden"
+                           title="Find alternatives"
+                         >
+                           <RefreshCw size={14} />
+                         </button>
+                       </div>
+
+                       <div className="leading-relaxed flex justify-between items-start group/meal print:block">
+                         <p className="flex-1"><span className="font-bold text-indigo-600">🌙 Dinner:</span> {day.dinner || day.meals?.dinner || "Not planned"}</p>
+                         <button
+                           onClick={() => handleSwapMeal(day.dinner || day.meals?.dinner, 'dinner', idx, 'dinner')}
+                           className="opacity-0 group-hover/meal:opacity-100 transition-opacity ml-2 text-green-600 hover:text-green-700 print:hidden"
+                           title="Find alternatives"
+                         >
+                           <RefreshCw size={14} />
+                         </button>
+                       </div>
+
                        {day.before_bed && (
-                         <p className="leading-relaxed"><span className="font-bold text-purple-500">🌜 Before Bed:</span> {day.before_bed}</p>
+                         <div className="leading-relaxed flex justify-between items-start group/meal print:block">
+                           <p className="flex-1"><span className="font-bold text-purple-500">🌜 Before Bed:</span> {day.before_bed}</p>
+                           <button
+                             onClick={() => handleSwapMeal(day.before_bed, 'before_bed', idx, 'before_bed')}
+                             className="opacity-0 group-hover/meal:opacity-100 transition-opacity ml-2 text-green-600 hover:text-green-700 print:hidden"
+                             title="Find alternatives"
+                           >
+                             <RefreshCw size={14} />
+                           </button>
+                         </div>
                        )}
                    </div>
                </div>
@@ -370,6 +495,79 @@ export default function Dashboard() {
                     </div>
                 )}
             </div>
+        </div>
+      )}
+
+      {/* --- SWAP MEAL MODAL --- */}
+      {showSwapModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 relative my-8">
+            <button
+              onClick={() => setShowSwapModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="text-center mb-6">
+              <div className="bg-green-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                <RefreshCw className="text-green-600" size={24} />
+              </div>
+              <h3 className="text-xl font-bold text-gray-800">Swap This Meal</h3>
+              <p className="text-gray-500 text-sm mt-1">Current: {currentSwapMeal.text}</p>
+            </div>
+
+            {swapLoading ? (
+              <div className="text-center py-12">
+                <Loader2 className="animate-spin text-green-600 mx-auto mb-3" size={40} />
+                <p className="text-gray-600">Finding smart alternatives...</p>
+              </div>
+            ) : swapAlternatives.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                No alternatives found. Please try again.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {swapAlternatives.map((alt, idx) => (
+                  <div
+                    key={idx}
+                    className="border border-gray-200 rounded-xl p-4 hover:border-green-500 hover:shadow-lg transition-all duration-300 cursor-pointer group"
+                    onClick={() => applySwap(alt.description)}
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <h4 className="font-bold text-gray-800 group-hover:text-green-600 transition-colors">
+                        {alt.name}
+                      </h4>
+                      <span className="text-xs bg-gray-100 px-2 py-1 rounded-full text-gray-600">
+                        {alt.diet_tag}
+                      </span>
+                    </div>
+
+                    <p className="text-gray-700 text-sm mb-3">{alt.description}</p>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-blue-50 p-2 rounded">
+                        <span className="font-semibold text-blue-700">Macros:</span>
+                        <span className="text-gray-700 ml-1">{alt.macro_match}</span>
+                      </div>
+                      <div className="bg-green-50 p-2 rounded">
+                        <span className="font-semibold text-green-700">Why:</span>
+                        <span className="text-gray-700 ml-1">{alt.why}</span>
+                      </div>
+                    </div>
+
+                    <button className="mt-3 w-full bg-green-600 text-white py-2 rounded-lg font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                      Use This Alternative
+                    </button>
+                  </div>
+                ))}
+
+                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                  <strong>Note:</strong> Swapping meals is currently a preview feature. Changes won't be saved permanently yet.
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

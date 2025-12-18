@@ -842,6 +842,115 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)):
             } for p in plans
         ]
     }
+
+# --- SMART MEAL SWAP ENDPOINT ---
+class SwapMealRequest(BaseModel):
+    meal_text: str  # e.g., "2 Rotis + 1 cup Dal + Sabzi"
+    meal_type: str  # breakfast, lunch, dinner, snack
+    user_profile: dict  # {diet_pref, region, goal, medical_manual, age, gender, weight_kg}
+
+@app.post("/swap-meal")
+async def swap_meal(request: SwapMealRequest):
+    """
+    Generate smart meal alternatives based on user's profile and dietary preferences.
+    Returns macro-matched, contextually relevant substitutions.
+    """
+    try:
+        # Build context-aware prompt for AI
+        swap_prompt = f"""You are a nutrition substitution engine. Generate 3 smart meal alternatives.
+
+**Original Meal:** {request.meal_text}
+**Meal Type:** {request.meal_type}
+**User Profile:**
+- Diet Preference: {request.user_profile.get('diet_pref', 'vegetarian')}
+- Region: {request.user_profile.get('region', 'North Indian')}
+- Goal: {request.user_profile.get('goal', 'balanced diet')}
+- Age: {request.user_profile.get('age', 30)}, Gender: {request.user_profile.get('gender', 'male')}
+- Medical: {request.user_profile.get('medical_manual', 'None')}
+
+**Rules:**
+1. Match macros (protein/carbs/fats) as closely as possible
+2. Respect diet preference (veg/non-veg/vegan)
+3. Use {request.user_profile.get('region', 'North Indian')} regional ingredients primarily
+4. Consider goal: {request.user_profile.get('goal', 'balanced diet')}
+5. If medical conditions exist, avoid trigger foods
+
+**Output Format (JSON):**
+{{
+  "alternatives": [
+    {{
+      "name": "Alternative 1 Name",
+      "description": "2 items + 1 item",
+      "macro_match": "Similar protein (25g), Lower carbs",
+      "why": "Better for weight loss goal",
+      "diet_tag": "vegetarian"
+    }},
+    {{
+      "name": "Alternative 2 Name",
+      "description": "Detailed meal description",
+      "macro_match": "Higher protein (30g)",
+      "why": "Good for muscle recovery",
+      "diet_tag": "non-vegetarian"
+    }},
+    {{
+      "name": "Alternative 3 Name",
+      "description": "Another option",
+      "macro_match": "Same calories, more fiber",
+      "why": "Easier to prepare",
+      "diet_tag": "vegan"
+    }}
+  ]
+}}
+
+Provide ONLY the JSON, no other text."""
+
+        # Call OpenAI API
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a nutrition substitution expert. Output ONLY valid JSON."},
+                {"role": "user", "content": swap_prompt}
+            ],
+            temperature=0.7,
+            response_format={"type": "json_object"}
+        )
+
+        swap_data = json.loads(response.choices[0].message.content)
+
+        # Filter alternatives based on diet preference
+        diet_pref = request.user_profile.get('diet_pref', '').lower()
+        filtered_alternatives = []
+
+        for alt in swap_data.get('alternatives', []):
+            alt_diet = alt.get('diet_tag', '').lower()
+
+            # Filter logic
+            if diet_pref == 'vegetarian' and alt_diet in ['vegetarian', 'vegan']:
+                filtered_alternatives.append(alt)
+            elif diet_pref == 'vegan' and alt_diet == 'vegan':
+                filtered_alternatives.append(alt)
+            elif diet_pref in ['non-vegetarian', 'eggetarian']:
+                # Non-veg can have everything
+                filtered_alternatives.append(alt)
+            else:
+                # Default: include all vegetarian options
+                if alt_diet in ['vegetarian', 'vegan']:
+                    filtered_alternatives.append(alt)
+
+        # If no matches after filtering, return all (safety fallback)
+        if not filtered_alternatives:
+            filtered_alternatives = swap_data.get('alternatives', [])
+
+        return {
+            "success": True,
+            "original_meal": request.meal_text,
+            "alternatives": filtered_alternatives[:3]  # Max 3 alternatives
+        }
+
+    except Exception as e:
+        logger.error(f"Meal swap error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate alternatives: {str(e)}")
+
 # --- 7. RUN INSTRUCTION ---
 if __name__ == "__main__":
     import uvicorn
