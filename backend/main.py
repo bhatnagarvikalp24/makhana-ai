@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from openai import OpenAI
 import pdfplumber
 import razorpay
+import requests
 from dotenv import load_dotenv
 
 # --- 1. CONFIGURATION & SETUP ---
