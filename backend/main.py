@@ -99,17 +99,25 @@ app = FastAPI(
 )
 
 # --- 2. CORS MIDDLEWARE (CRUCIAL FOR REACT/NETLIFY) ---
-# Allow all origins temporarily for debugging - will restrict later
-default_origins = "https://makhana-ai.onrender.com,http://localhost:3000,http://localhost:5173"
-origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", default_origins).split(",") if origin.strip()]
+# Allow all origins for now - can restrict later with environment variable
+default_origins = "*"  # Allow all origins to fix CORS issues
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", default_origins)
+
+# FastAPI CORS doesn't support ["*"] directly, so we use a regex or list
+if allowed_origins_env == "*":
+    # Use regex pattern to allow all origins
+    origins = [r".*"]
+else:
+    origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # Temporarily allow all origins to fix CORS
-    allow_credentials=False,
-    allow_methods=["*"],
+    allow_origin_regex=r".*",  # Allow all origins using regex
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
     expose_headers=["*"],
+    max_age=3600,
 )
 
 # Add request timing middleware
@@ -275,6 +283,7 @@ def call_ai_json(system_prompt: str, user_prompt: str, max_retries: int = 2):
 @app.get("/")
 def home():
     return {"message": "AI Ghar-Ka-Diet Backend is Running!", "status": "active"}
+
 
 @app.get("/health")
 def health_check(db: Session = Depends(get_db)):
