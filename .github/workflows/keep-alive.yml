@@ -2,27 +2,30 @@ name: Keep Backend Alive
 
 on:
   schedule:
-    # Run every 10 minutes (GitHub Actions minimum is 5 min, but 10 min is safer)
-    - cron: '*/10 * * * *'
+    # Run every 5 minutes to keep backend awake (Render free tier sleeps after 15 min)
+    - cron: '*/5 * * * *'
   workflow_dispatch: # Allow manual triggering
 
 jobs:
   ping:
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
       - name: Ping Backend Health Endpoint
         run: |
-          echo "Pinging backend to keep it alive..."
-          response=$(curl -s -o /dev/null -w "%{http_code}" https://makhana-ai.onrender.com/health)
+          echo "🔄 Pinging backend to keep it alive..."
+          response=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://makhana-ai.onrender.com/health)
           echo "Response code: $response"
           if [ $response -eq 200 ]; then
-            echo "✅ Backend is alive!"
+            echo "✅ Backend is alive and responding!"
           else
             echo "⚠️ Backend returned status $response"
+            exit 1
           fi
 
       - name: Ping Home Endpoint
         run: |
-          echo "Pinging home endpoint..."
-          curl -s https://makhana-ai.onrender.com/ | head -n 5
-          echo "✅ Ping completed"
+          echo "🔄 Pinging home endpoint..."
+          curl -s --max-time 30 https://makhana-ai.onrender.com/ | head -n 5
+          echo ""
+          echo "✅ All pings completed successfully"

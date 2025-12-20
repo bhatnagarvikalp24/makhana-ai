@@ -286,14 +286,25 @@ def home():
 
 
 @app.get("/health")
-def health_check(db: Session = Depends(get_db)):
-    """Health check endpoint with database connectivity test"""
+def health_check():
+    """Lightweight health check endpoint - fast response for monitoring"""
+    # Fast response without DB check for keep-alive pings
+    return {
+        "status": "healthy",
+        "service": "active",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/health/detailed")
+def health_check_detailed(db: Session = Depends(get_db)):
+    """Detailed health check with database connectivity test"""
     try:
         # Test database connection
         db.execute(text("SELECT 1"))
         return {
             "status": "healthy",
             "database": "connected",
+            "service": "active",
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
