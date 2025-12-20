@@ -81,8 +81,12 @@ RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_SECRET = os.getenv("RAZORPAY_SECRET")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")  # Optional - for recipe videos
 
-# Initialize AI Client
-client = OpenAI(api_key=OPENAI_API_KEY)
+# Initialize AI Client with timeout settings for better performance
+client = OpenAI(
+    api_key=OPENAI_API_KEY,
+    timeout=120.0,  # 2 minute timeout (prevent hanging)
+    max_retries=2   # Retry on transient errors
+)
 
 # Simple in-memory cache for recipe videos (avoids repeated API calls)
 recipe_video_cache = {}
@@ -258,6 +262,7 @@ def call_ai_json(system_prompt: str, user_prompt: str, max_retries: int = 2, max
     for attempt in range(max_retries):
         try:
             logger.info(f"Calling AI API (attempt {attempt + 1}/{max_retries}, max_tokens={max_tokens})")
+            api_start = time.time()
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
@@ -268,10 +273,13 @@ def call_ai_json(system_prompt: str, user_prompt: str, max_retries: int = 2, max
                 temperature=0.7,
                 max_tokens=max_tokens  # Increased for complete responses
             )
+            api_elapsed = time.time() - api_start
+            logger.info(f"OpenAI API response received in {api_elapsed:.2f}s")
             content = response.choices[0].message.content
             result = json.loads(content)
             elapsed = time.time() - start_time
-            logger.info(f"AI API call successful in {elapsed:.2f}s (tokens: {response.usage.total_tokens if hasattr(response, 'usage') else 'N/A'})")
+            total_tokens = response.usage.total_tokens if hasattr(response, 'usage') and response.usage else 'N/A'
+            logger.info(f"AI API call successful in {elapsed:.2f}s (tokens: {total_tokens}, API time: {api_elapsed:.2f}s)")
             return result
         except Exception as e:
             logger.error(f"AI Error (attempt {attempt + 1}): {e}")
@@ -571,19 +579,9 @@ Goal Pace: {profile.goal_pace}
 5. Round to nearest 50 kcal
 6. Create a 50-80 kcal range around the target
 
-**Example calculation for 29M, 83kg, 177cm, Weight Loss, Balanced:**
-- BMR = (10 × 83) + (6.25 × 177) - (5 × 29) + 5 = 1836 kcal
-- TDEE range = 1836 × 1.3 to 1836 × 1.4 = 2387-2570 kcal
-- Midpoint = 2479 kcal (call this "estimated maintenance")
-- Balanced deficit (22.5%) = 2479 - 557 = 1922 kcal
-- Final target: **1900-1950 kcal**
-
-**In explanation, say:**
-"Your estimated maintenance calories are around 2400-2550 kcal. For balanced weight loss, we're applying a moderate deficit to target 0.5-0.75kg per week."
-OR if you want to avoid stating TDEE:
-"Based on your BMR and typical activity, we've designed a calibrated deficit for steady, sustainable fat loss of 0.5-0.75kg per week."
-
-**NEVER state exact TDEE if it creates math inconsistency!**
+**Example (29M, 83kg, 177cm, Weight Loss, Balanced):**
+BMR = 1836 kcal → TDEE range = 2387-2570 kcal → Midpoint 2479 → Balanced deficit (22.5%) = 1922 → Final: **1900-1950 kcal**
+**Explanation style:** "Estimated maintenance around 2400-2550 kcal. Balanced deficit targets 0.5-0.75kg/week loss." OR avoid TDEE: "Calibrated deficit for steady fat loss of 0.5-0.75kg/week."
 
 #### STEP 4: Calculate Protein Based on Goal, Goal Pace, and Body Weight
 **CRITICAL: Use SUSTAINABLE, ACHIEVABLE protein ranges - NOT athlete-level defaults!**
@@ -621,13 +619,9 @@ User Stats: {profile.weight_kg}kg, {profile.age}y, Goal: {profile.goal}, Pace: {
 3. Keep range tight: 10-20g difference max
 4. Final output example: "120-135g" NOT "120-160g"
 
-**Example for 83kg male, weight loss, balanced:**
-- Lower: 83 × 1.6 = 133g → round to **130g**
-- Upper: 83 × 1.8 = 149g → round to **150g**
-- Final: **130-150g protein**
+**Example (83kg, weight loss, balanced):** 83 × 1.6 = 133g, 83 × 1.8 = 149g → Round to **130-150g protein**
 
-**For this specific user:** {profile.weight_kg}kg, {profile.age}y, {profile.goal}, {profile.goal_pace}
-→ Calculate using the appropriate multiplier range above
+**For this user ({profile.weight_kg}kg, {profile.age}y, {profile.goal}, {profile.goal_pace}):** Use appropriate multiplier range above.
 
 ---
 
@@ -639,63 +633,21 @@ User Stats: {profile.weight_kg}kg, {profile.age}y, Goal: {profile.goal}, Pace: {
 
 **Condition-Specific Dietary Adjustments:**
 
-**1. Diabetes / Pre-diabetes / High HbA1c:**
-- ✅ Focus on LOW GI carbs: whole grains, millets, oats, brown rice
-- ✅ Increase fiber intake: vegetables, legumes, whole fruits (not juice)
-- ✅ Protein with every meal to stabilize blood sugar
-- ❌ AVOID: White rice, maida products, refined sugar, sugary drinks, fruit juices
-- ❌ LIMIT: Potatoes, white bread, processed foods
-- 📊 Carb distribution: Spread across meals, avoid large carb loads
-- **Meal timing:** Never skip meals, eat every 3-4 hours
+**1. Diabetes/Pre-diabetes/High HbA1c:** Low GI carbs (whole grains, millets, oats, brown rice). High fiber, protein with every meal. AVOID: White rice, maida, refined sugar, juices. LIMIT: Potatoes, white bread. Meal timing: Every 3-4 hours.
 
-**2. Thyroid Issues (Hypo/Hyper):**
-- **For Hypothyroid:**
-  - ✅ Increase: Iodine-rich foods (iodized salt, fish, dairy)
-  - ✅ Include: Selenium (Brazil nuts, eggs, fish), Zinc (pumpkin seeds, chickpeas)
-  - ❌ LIMIT: Raw cruciferous vegetables in excess (cabbage, cauliflower, broccoli - cook them)
-  - ❌ AVOID: Soy products in large amounts (can interfere with medication)
-- **For Hyperthyroid:**
-  - ✅ Focus on: Calcium-rich foods, anti-inflammatory foods
-  - ❌ LIMIT: Iodine intake, caffeine
+**2. Thyroid Issues:** Hypothyroid: Iodine (salt, fish, dairy), Selenium (Brazil nuts, eggs), Zinc. LIMIT raw cruciferous, AVOID excess soy. Hyperthyroid: Calcium-rich, anti-inflammatory. LIMIT iodine, caffeine.
 
-**3. PCOD / PCOS:**
-- ✅ Focus on: Low GI carbs, high fiber, anti-inflammatory foods
-- ✅ Increase: Omega-3 (fatty fish, walnuts, flaxseeds), protein, cinnamon
-- ✅ Include: Spearmint tea, whole grains, leafy greens
-- ❌ AVOID: Refined carbs, sugar, processed foods, trans fats
-- ❌ LIMIT: Dairy (can worsen symptoms for some), red meat
-- **Key:** Manage insulin resistance through diet
+**3. PCOD/PCOS:** Low GI carbs, high fiber, anti-inflammatory. Increase omega-3, protein, cinnamon. AVOID refined carbs, sugar, trans fats. LIMIT dairy, red meat. Manage insulin resistance.
 
-**4. High Cholesterol:**
-- ✅ Increase: Soluble fiber (oats, barley, apples, beans), omega-3 fatty acids
-- ✅ Include: Nuts (almonds, walnuts), olive oil, fatty fish, garlic
-- ❌ AVOID: Deep-fried foods, saturated fats, trans fats, processed meats
-- ❌ LIMIT: Red meat, full-fat dairy, egg yolks (max 2-3 per week), coconut oil
-- **Focus:** Replace saturated fats with unsaturated fats
+**4. High Cholesterol:** Soluble fiber (oats, barley, apples, beans), omega-3, nuts, olive oil, fatty fish, garlic. AVOID deep-fried, saturated/trans fats, processed meats. LIMIT red meat, full-fat dairy, egg yolks (max 2-3/week).
 
-**5. Hypertension (High Blood Pressure):**
-- ✅ Focus on: DASH diet principles - fruits, vegetables, whole grains, low-fat dairy
-- ✅ Increase: Potassium (bananas, spinach, beans), magnesium, fiber
-- ✅ Include: Beetroot, garlic, dark chocolate (70%+), hibiscus tea
-- ❌ CRITICAL: LOW SODIUM - avoid pickles, papad, packaged snacks, processed foods
-- ❌ LIMIT: Salt to <5g per day (1 tsp), alcohol, caffeine
-- **Cooking:** Use herbs and spices instead of salt
+**5. Hypertension:** DASH principles - fruits, vegetables, whole grains, low-fat dairy. Increase potassium, magnesium, fiber. Include beetroot, garlic. CRITICAL: LOW SODIUM - avoid pickles, papad, packaged snacks. LIMIT salt <5g/day, alcohol, caffeine.
 
-**6. Low Vitamin D (from blood report):**
-- ✅ Increase: Fatty fish (salmon, mackerel), egg yolks, fortified milk, mushrooms (sun-exposed)
-- ✅ Recommendation: 15-20 min sunlight exposure daily (before 10 AM or after 4 PM)
-- Consider supplementation if levels <20 ng/mL
+**6. Low Vitamin D:** Fatty fish, egg yolks, fortified milk, sun-exposed mushrooms. 15-20 min sunlight daily (before 10 AM or after 4 PM). Consider supplements if <20 ng/mL.
 
-**7. Low Iron / Anemia:**
-- ✅ Increase: Iron-rich foods (spinach, beetroot, dates, raisins, jaggery)
-- ✅ For non-veg: Chicken liver, red meat (moderation)
-- ✅ Include: Vitamin C with meals (lemon, amla, tomatoes) - enhances iron absorption
-- ❌ AVOID: Tea/coffee with meals (inhibits iron absorption)
+**7. Low Iron/Anemia:** Iron-rich foods (spinach, beetroot, dates, raisins, jaggery). Non-veg: Chicken liver, red meat (moderation). Include Vitamin C with meals (lemon, amla, tomatoes). AVOID tea/coffee with meals.
 
-**8. High Triglycerides:**
-- ✅ Increase: Omega-3, fiber, whole grains
-- ❌ AVOID: Refined carbs, sugar, alcohol, fruit juices
-- ❌ LIMIT: Simple carbs, saturated fats
+**8. High Triglycerides:** Increase omega-3, fiber, whole grains. AVOID refined carbs, sugar, alcohol, juices. LIMIT simple carbs, saturated fats.
 
 **IMPLEMENTATION RULES:**
 1. **Multiple Conditions:** If user has multiple conditions, prioritize adjustments that satisfy ALL conditions
@@ -734,34 +686,10 @@ Briefly restate:
 **You MUST include:**
 
 **Calories:** Narrow 50-80 kcal range (e.g., "1900-1950 kcal")
-**Calories Reasoning Examples:**
+**Calories Reasoning:** 2-4 lines, coach-like. Use "estimated maintenance around X-Y kcal" OR avoid TDEE entirely. Never state exact TDEE that contradicts final calories.
 
-✅ GOOD (avoids stating exact TDEE when risky):
-"Based on your age, stats, and typical activity, your estimated maintenance is around 2400-2550 kcal. For balanced weight loss, we've designed a calibrated deficit to support steady fat loss of 0.5-0.75kg per week."
-
-✅ GOOD (doesn't mention TDEE at all):
-"We've calculated a sustainable calorie target that creates a steady, manageable deficit for your goal. This supports 0.5-0.75kg loss per week without feeling overly restrictive."
-
-✅ GOOD (for maintenance):
-"These calories are designed to maintain your current weight while supporting your daily energy needs and overall health."
-
-❌ BAD (exposes math inconsistency):
-"Your TDEE is 2100 kcal. We're applying a 25% deficit = 1575 kcal." [But then shows 1900-1950 kcal - CONTRADICTORY!]
-
-**Protein:** Tight 10-20g range (e.g., "130-150g")
-**Protein Reasoning Examples:**
-
-✅ GOOD (sustainable, not aggressive):
-"This protein level (1.6-1.8g per kg) supports muscle preservation during your deficit while staying achievable with normal meals. Higher end if you're training regularly."
-
-✅ GOOD (emphasizes benefits):
-"Adequate protein helps preserve lean mass, keeps you satisfied between meals, and supports recovery. This range is sustainable for most people."
-
-✅ GOOD (for maintenance):
-"This moderate protein intake (1.2-1.5g per kg) supports overall health and muscle maintenance without being excessive."
-
-❌ BAD (too technical or aggressive):
-"At 2.0-2.2g per kg bodyweight, this maximizes muscle protein synthesis and minimizes catabolism during hypocaloric conditions."
+**Protein:** Tight 10-20g range (e.g., "130-150g")  
+**Protein Reasoning:** 2-3 lines, sustainable tone. Mention g/kg range, emphasize benefits (muscle preservation, satiety). Avoid athlete-level justifications.
 
 **Other Required Fields:**
 - **Carbs & Fats Guidance:** Brief, goal-appropriate
@@ -879,43 +807,15 @@ Include:
 
 ---
 
-### 🔸 FINAL ENFORCEMENT: REAL EXAMPLES TO FOLLOW
+### 🔸 CALCULATION EXAMPLES (Reference Only)
 
-**Example 1: 68-year-old Woman, 60kg, 160cm, Balanced Diet (Maintenance)**
-- BMR = (10 × 60) + (6.25 × 160) - (5 × 68) - 161 = 1139 kcal
-- TDEE (sedentary, age 60+) = 1139 × 1.2 = 1367 kcal
-- Goal: Balanced/Maintenance → Calories = **"1350-1400 kcal"**
-- Protein (age 60+, maintenance) = 0.9-1.1g/kg = 60 × 0.9 to 60 × 1.1 = **"55-65g"**
-- Activity: "Light walking, stretching, chair exercises"
+**Example 1 (68F, 60kg, 160cm, Maintenance):** BMR=1139 → TDEE=1367 (1.2×) → Calories: **1350-1400 kcal**, Protein: **55-65g** (0.9-1.1g/kg, age 60+)
 
-**Example 2: 25-year-old Man, 75kg, 175cm, Muscle Gain, Balanced**
-- BMR = (10 × 75) + (6.25 × 175) - (5 × 25) + 5 = 1719 kcal
-- TDEE range = 1719 × 1.3 to 1719 × 1.4 = 2235-2407 kcal
-- Midpoint = 2321 kcal
-- Balanced surplus (+350 kcal) = 2321 + 350 = 2671 kcal
-- Final: **"2650-2700 kcal"**
-- Protein (1.7-1.9g/kg) = 75 × 1.7 to 75 × 1.9 = **"128-143g"**
-- Activity: "Strength training with progressive overload, 4-5 days/week"
+**Example 2 (25M, 75kg, 175cm, Muscle Gain, Balanced):** BMR=1719 → TDEE=2321 (midpoint) → Surplus +350 → Calories: **2650-2700 kcal**, Protein: **128-143g** (1.7-1.9g/kg)
 
-**Example 3: 40-year-old Woman, 70kg, 165cm, Weight Loss, Balanced**
-- BMR = (10 × 70) + (6.25 × 165) - (5 × 40) - 161 = 1370 kcal
-- TDEE range = 1370 × 1.3 to 1370 × 1.4 = 1781-1918 kcal
-- Midpoint = 1850 kcal (estimated maintenance)
-- Balanced deficit (22.5%) = 1850 - 416 = 1434 kcal
-- Final: **"1400-1450 kcal"**
-- Protein (1.6-1.8g/kg) = 70 × 1.6 to 70 × 1.8 = **"110-125g"**
+**Example 3 (40F, 70kg, 165cm, Weight Loss, Balanced):** BMR=1370 → TDEE=1850 (midpoint) → Deficit 22.5% → Calories: **1400-1450 kcal**, Protein: **110-125g** (1.6-1.8g/kg)
 
-**FINAL VALIDATION CHECKLIST (USE THIS BEFORE GENERATING OUTPUT):**
-1. ✅ Did I calculate BMR using the correct formula?
-2. ✅ Did I use CONSERVATIVE TDEE (1.3-1.4×BMR, or 1.2 for 60+)?
-3. ✅ Did I apply the correct deficit/surplus % for the goal_pace?
-4. ✅ Is my final calorie range 50-80 kcal wide (not 200+)?
-5. ✅ Does my calories_reasoning match the math (or avoid stating exact numbers)?
-6. ✅ Did I use SUSTAINABLE protein multipliers (NOT 2.0+ for everyone)?
-7. ✅ Is my protein range 10-20g wide (not 30+)?
-8. ✅ Is my protein_reasoning coach-like and encouraging (not technical)?
-9. ✅ Did I include the adherence note?
-10. ✅ Will users TRUST this output (no contradictions)?
+**VALIDATION:** BMR correct? TDEE conservative (1.3-1.4× or 1.2 for 60+)? Deficit/surplus matches goal_pace? Calories 50-80 kcal range? Protein 10-20g range, sustainable multipliers? Reasoning coach-like? Medical adjustments specific? No contradictions?
 
 **→ NOW Calculate for {profile.name}: {profile.age}y, {profile.gender}, {profile.weight_kg}kg, {profile.height_cm}cm, {profile.goal}, {profile.goal_pace}**
 
