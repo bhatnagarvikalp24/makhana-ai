@@ -1286,7 +1286,7 @@ async def get_recipe_video(request: RecipeVideoRequest):
             return recipe_video_cache[cache_key]
 
         # If no YouTube API key, return search URL instead
-        if not YOUTUBE_API_KEY:
+        if not YOUTUBE_API_KEY or YOUTUBE_API_KEY.strip() == "":
             logger.warning("YouTube API key not configured, returning search link")
             search_query = f"{request.meal_name} recipe easy indian"
             return {
@@ -1298,6 +1298,8 @@ async def get_recipe_video(request: RecipeVideoRequest):
                 "url": f"https://www.youtube.com/results?search_query={search_query.replace(' ', '+')}",
                 "fallback": True
             }
+        
+        logger.info(f"Fetching YouTube video for: {request.meal_name} (language: {request.language})")
 
         # Build search query
         language_hint = ""
@@ -1321,15 +1323,33 @@ async def get_recipe_video(request: RecipeVideoRequest):
             "order": "relevance"
         }
 
-        response = requests.get(youtube_url, params=params)
+        response = requests.get(youtube_url, params=params, timeout=10)
 
         if response.status_code != 200:
-            logger.error(f"YouTube API error: {response.status_code}")
-            raise HTTPException(status_code=500, detail="YouTube API request failed")
+            error_data = response.json() if response.content else {}
+            error_message = error_data.get("error", {}).get("message", "Unknown error")
+            logger.error(f"YouTube API error: {response.status_code} - {error_message}")
+            
+            # If API key is invalid or missing, return fallback
+            if response.status_code == 403 or "API key" in error_message:
+                logger.warning("YouTube API key invalid or quota exceeded, using fallback")
+                search_query = f"{request.meal_name} recipe easy indian"
+                return {
+                    "success": True,
+                    "video_id": None,
+                    "title": f"Search: {request.meal_name} Recipe",
+                    "channel": "YouTube",
+                    "thumbnail": "https://via.placeholder.com/480x360?text=API+Key+Issue",
+                    "url": f"https://www.youtube.com/results?search_query={search_query.replace(' ', '+')}",
+                    "fallback": True
+                }
+            
+            raise HTTPException(status_code=500, detail=f"YouTube API request failed: {error_message}")
 
         data = response.json()
 
         if not data.get("items"):
+            logger.info(f"No videos found for: {request.meal_name}")
             return {
                 "success": False,
                 "message": "No recipe videos found",
@@ -1355,6 +1375,8 @@ async def get_recipe_video(request: RecipeVideoRequest):
 
         # Cache the result
         recipe_video_cache[cache_key] = result
+        
+        logger.info(f"Successfully fetched YouTube video: {result['title']} (ID: {video_id})")
 
         return result
 
