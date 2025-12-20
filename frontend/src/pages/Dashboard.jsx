@@ -220,42 +220,50 @@ export default function Dashboard() {
               <ArrowLeft size={16} className="mr-1 group-hover:-translate-x-1 transition-transform"/> Back
           </button>
 
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex flex-col gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Your 7-Day Diet Plan</h1>
-              <p className="text-gray-500 mt-1">Personalized for your goals</p>
+              <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Your 7-Day Diet Plan</h1>
+              <p className="text-gray-500 mt-1 text-sm md:text-base">Personalized for your goals</p>
             </div>
 
-            <div className="flex gap-2 flex-wrap">
-              <button
-                  onClick={handleDownloadPDF}
-                  className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition flex items-center gap-2 text-sm font-medium"
-              >
-                  <Download size={16}/> PDF
-              </button>
-
-              <button
-                  onClick={() => setShowSaveModal(true)}
-                  className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition flex items-center gap-2 text-sm font-medium"
-              >
-                  <Save size={16}/> Save
-              </button>
-
-              <button
-                  onClick={() => setShowBarcodeScanner(true)}
-                  className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition flex items-center gap-2 text-sm font-medium"
-              >
-                  <ScanBarcode size={16}/> Scan
-              </button>
-
+            {/* Mobile-Optimized Button Layout */}
+            <div className="space-y-2">
+              {/* Primary Action - Grocery List (Full Width on Mobile) */}
               <button
                   onClick={handleGrocery}
                   disabled={loading}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center gap-2 text-sm font-medium disabled:opacity-50"
+                  className="w-full md:w-auto px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition flex items-center justify-center gap-2 text-base font-semibold disabled:opacity-50 shadow-lg hover:shadow-xl"
               >
-                  {loading ? <Loader2 className="animate-spin" size={16}/> : <ShoppingCart size={16}/>}
+                  {loading ? <Loader2 className="animate-spin" size={18}/> : <ShoppingCart size={18}/>}
                   Grocery List
               </button>
+
+              {/* Secondary Actions - Grid Layout on Mobile */}
+              <div className="grid grid-cols-3 gap-2 md:flex md:gap-2">
+                <button
+                    onClick={handleDownloadPDF}
+                    className="px-4 py-2.5 bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition flex flex-col items-center justify-center gap-1 text-xs md:text-sm font-medium shadow-sm"
+                >
+                    <Download size={18} className="md:w-4 md:h-4"/>
+                    <span className="hidden md:inline">PDF</span>
+                </button>
+
+                <button
+                    onClick={() => setShowSaveModal(true)}
+                    className="px-4 py-2.5 bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition flex flex-col items-center justify-center gap-1 text-xs md:text-sm font-medium shadow-sm"
+                >
+                    <Save size={18} className="md:w-4 md:h-4"/>
+                    <span className="hidden md:inline">Save</span>
+                </button>
+
+                <button
+                    onClick={() => setShowBarcodeScanner(true)}
+                    className="px-4 py-2.5 bg-white border-2 border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition flex flex-col items-center justify-center gap-1 text-xs md:text-sm font-medium shadow-sm"
+                >
+                    <ScanBarcode size={18} className="md:w-4 md:h-4"/>
+                    <span className="hidden md:inline">Scan</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

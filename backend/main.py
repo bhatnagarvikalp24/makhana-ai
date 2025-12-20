@@ -1412,17 +1412,35 @@ async def scan_barcode(request: BarcodeScanRequest):
     """
     try:
         barcode = request.barcode.strip()
+        
+        # Validate barcode format
+        if not barcode or len(barcode) < 8:
+            return {
+                "success": False,
+                "error": "Invalid barcode format. Please scan a valid product barcode."
+            }
+
+        logger.info(f"Looking up barcode: {barcode}")
 
         # 1. Look up product in Open Food Facts
         openfoodfacts_url = f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
 
         response = requests.get(openfoodfacts_url, timeout=10)
+        
+        if response.status_code != 200:
+            logger.warning(f"Open Food Facts API error: {response.status_code}")
+            return {
+                "success": False,
+                "error": "Unable to connect to product database. Please try again."
+            }
+        
         data = response.json()
 
         if data.get("status") != 1:
+            logger.info(f"Product not found for barcode: {barcode}")
             return {
                 "success": False,
-                "error": "Product not found in database. Try another barcode or check if it's readable."
+                "error": "Product not found in database. Try another barcode or use 'Search by Name' instead."
             }
 
         product = data.get("product", {})
@@ -1542,15 +1560,22 @@ ALTERNATIVES:
         }
 
     except requests.Timeout:
+        logger.error("Barcode lookup timeout")
         return {
             "success": False,
-            "error": "Request timeout. Please try again."
+            "error": "Request timeout. Please try again or use 'Search by Name' instead."
+        }
+    except requests.RequestException as e:
+        logger.error(f"Network error during barcode lookup: {e}")
+        return {
+            "success": False,
+            "error": "Network error. Please check your connection and try again."
         }
     except Exception as e:
         logger.error(f"Barcode scan error: {e}")
         return {
             "success": False,
-            "error": f"Error scanning barcode: {str(e)}"
+            "error": f"Error scanning barcode: {str(e)}. Please try 'Search by Name' instead."
         }
 
 # --- PRODUCT SEARCH ENDPOINT (for products without barcode) ---

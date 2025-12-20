@@ -11,6 +11,7 @@ export default function BarcodeScanner({ onClose, userDiet, userGoal }) {
   const [loading, setLoading] = useState(false);
   const [productData, setProductData] = useState(null);
   const [scanner, setScanner] = useState(null);
+  const [lastScannedBarcode, setLastScannedBarcode] = useState(null);
 
   // Search states
   const [showSearch, setShowSearch] = useState(false);
@@ -32,7 +33,9 @@ export default function BarcodeScanner({ onClose, userDiet, userGoal }) {
             3, // EAN_8
             4, // UPC_A
             5, // UPC_E
-          ]
+          ],
+          rememberLastUsedCamera: false,
+          showTorchButtonIfSupported: false,
         },
         false
       );
@@ -44,14 +47,28 @@ export default function BarcodeScanner({ onClose, userDiet, userGoal }) {
     return () => {
       if (scanner) {
         scanner.clear().catch(err => console.error("Scanner cleanup error:", err));
+        setScanner(null);
       }
     };
   }, [scanning]);
 
   const onScanSuccess = async (decodedText) => {
+    // Prevent multiple scans of the same barcode (debounce)
+    if (loading || lastScannedBarcode === decodedText) {
+      return;
+    }
+    
+    // Mark this barcode as scanned
+    setLastScannedBarcode(decodedText);
+    
+    // Stop scanning immediately
     setScanning(false);
     if (scanner) {
-      scanner.clear();
+      try {
+        scanner.clear();
+      } catch (err) {
+        console.error("Error clearing scanner:", err);
+      }
       setScanner(null);
     }
 
@@ -60,8 +77,10 @@ export default function BarcodeScanner({ onClose, userDiet, userGoal }) {
   };
 
   const onScanFailure = (error) => {
-    // Ignore scan failures (too noisy)
-    // console.warn("Scan error:", error);
+    // Only log meaningful errors, ignore common scan failures
+    if (error && !error.includes("NotFoundException") && !error.includes("No MultiFormat Readers")) {
+      console.warn("Scan error:", error);
+    }
   };
 
   const lookupProduct = async (barcode) => {
@@ -175,7 +194,11 @@ export default function BarcodeScanner({ onClose, userDiet, userGoal }) {
 
               <div className="space-y-3 pt-4">
                 <button
-                  onClick={() => setScanning(true)}
+                  onClick={() => {
+                    setLastScannedBarcode(null);
+                    setProductData(null);
+                    setScanning(true);
+                  }}
                   className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition flex items-center justify-center"
                 >
                   <Scan size={20} className="mr-2" />
@@ -290,7 +313,11 @@ export default function BarcodeScanner({ onClose, userDiet, userGoal }) {
                   onClick={() => {
                     setScanning(false);
                     if (scanner) {
-                      scanner.clear();
+                      try {
+                        scanner.clear();
+                      } catch (err) {
+                        console.error("Error clearing scanner:", err);
+                      }
                       setScanner(null);
                     }
                   }}
@@ -410,14 +437,33 @@ export default function BarcodeScanner({ onClose, userDiet, userGoal }) {
                 <button
                   onClick={() => {
                     setProductData(null);
+                    setLastScannedBarcode(null);
                     setScanning(false);
+                    if (scanner) {
+                      try {
+                        scanner.clear();
+                      } catch (err) {
+                        console.error("Error clearing scanner:", err);
+                      }
+                      setScanner(null);
+                    }
                   }}
                   className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition"
                 >
                   Scan Another
                 </button>
                 <button
-                  onClick={onClose}
+                  onClick={() => {
+                    if (scanner) {
+                      try {
+                        scanner.clear();
+                      } catch (err) {
+                        console.error("Error clearing scanner:", err);
+                      }
+                      setScanner(null);
+                    }
+                    onClose();
+                  }}
                   className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition"
                 >
                   Close
