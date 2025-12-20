@@ -249,13 +249,15 @@ class OrderRequest(BaseModel):
 
 # --- 5. AI HELPER FUNCTION ---
 
-def call_ai_json(system_prompt: str, user_prompt: str, max_retries: int = 2):
+def call_ai_json(system_prompt: str, user_prompt: str, max_retries: int = 2, max_tokens: int = 4000):
     """
     Helper to call OpenAI with JSON mode enforcement and retry logic.
+    Optimized for performance with configurable max_tokens.
     """
+    start_time = time.time()
     for attempt in range(max_retries):
         try:
-            logger.info(f"Calling AI API (attempt {attempt + 1}/{max_retries})")
+            logger.info(f"Calling AI API (attempt {attempt + 1}/{max_retries}, max_tokens={max_tokens})")
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
@@ -264,18 +266,19 @@ def call_ai_json(system_prompt: str, user_prompt: str, max_retries: int = 2):
                 ],
                 response_format={"type": "json_object"},
                 temperature=0.7,
-                max_tokens=2000  # Optimize token usage
+                max_tokens=max_tokens  # Increased for complete responses
             )
             content = response.choices[0].message.content
             result = json.loads(content)
-            logger.info("AI API call successful")
+            elapsed = time.time() - start_time
+            logger.info(f"AI API call successful in {elapsed:.2f}s (tokens: {response.usage.total_tokens if hasattr(response, 'usage') else 'N/A'})")
             return result
         except Exception as e:
             logger.error(f"AI Error (attempt {attempt + 1}): {e}")
             if attempt == max_retries - 1:
                 # Fallback JSON if all retries fail
                 return {"error": "AI generation failed", "details": str(e)}
-            time.sleep(1)  # Wait before retry
+            time.sleep(0.5)  # Reduced wait time
     return {"error": "AI generation failed after retries"}
 
 # --- 6. API ENDPOINTS ---
@@ -969,14 +972,20 @@ Include:
 }}
 """
 
-    user_prompt = f"""Generate a comprehensive, goal-oriented diet plan for {profile.name}.
-Goal: {profile.goal}
-Current: {profile.weight_kg}kg, {profile.height_cm}cm
-Focus on practical Indian meals with clear outcome expectations."""
+    # Optimized user prompt - concise but complete
+    user_prompt = f"""Generate diet plan for {profile.name} ({profile.age}y, {profile.gender}, {profile.weight_kg}kg, {profile.height_cm}cm).
+Goal: {profile.goal} ({profile.goal_pace} pace)
+Diet: {profile.diet_pref}, Region: {profile.region}
+Medical: {', '.join(profile.medical_manual) if profile.medical_manual else 'None'}
+Output complete 7-day plan with calculated nutrition targets."""
 
     try:
+        start_time = time.time()
         logger.info(f"Generating {profile.goal} plan for {profile.name}")
-        diet_plan_json = call_ai_json(system_prompt, user_prompt)
+        # Use higher max_tokens for diet plan (needs complete 7-day plan with all details)
+        diet_plan_json = call_ai_json(system_prompt, user_prompt, max_tokens=4000)
+        elapsed = time.time() - start_time
+        logger.info(f"Diet plan generation completed in {elapsed:.2f}s")
 
         # Check for AI errors
         if "error" in diet_plan_json:
@@ -1053,11 +1062,24 @@ RULES:
 - Use null not empty string
 """
 
-    user_prompt = f"Meal plan: {plan.plan_json[:2000]}"
+    # Optimize: Extract only meal data, not full plan structure
+    try:
+        plan_data = json.loads(plan.plan_json) if isinstance(plan.plan_json, str) else plan.plan_json
+        # Extract only days array for grocery generation (most relevant)
+        days_data = plan_data.get('days', [])
+        meals_summary = json.dumps(days_data, ensure_ascii=False)[:2500]  # Increased but still limited
+    except:
+        meals_summary = plan.plan_json[:2000] if isinstance(plan.plan_json, str) else str(plan.plan_json)[:2000]
+    
+    user_prompt = f"Meal plan (7 days): {meals_summary}"
 
     try:
+        start_time = time.time()
         logger.info(f"Generating enhanced grocery list for plan {plan_id}")
-        grocery_data = call_ai_json(system_prompt, user_prompt)
+        # Grocery list needs fewer tokens (simpler structure)
+        grocery_data = call_ai_json(system_prompt, user_prompt, max_tokens=3000)
+        elapsed = time.time() - start_time
+        logger.info(f"Grocery list generation completed in {elapsed:.2f}s")
 
         # Validate response structure
         if "error" in grocery_data:
