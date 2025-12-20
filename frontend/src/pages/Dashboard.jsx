@@ -1,10 +1,11 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ShoppingCart, ArrowLeft, Loader2, Save, X, Stethoscope, Download, ShieldCheck, RefreshCw, Play } from 'lucide-react';
+import { ShoppingCart, ArrowLeft, Loader2, Save, X, Stethoscope, Download, ShieldCheck, RefreshCw, Play, TrendingUp, ScanBarcode } from 'lucide-react';
 import { useState } from 'react';
 import axios from 'axios';
 import html2pdf from 'html2pdf.js';
 import toast from 'react-hot-toast'; // <--- 1. IMPORT TOAST
 import { generateGrocery } from '../components/api';
+import BarcodeScanner from '../components/BarcodeScanner';
 
 const API_URL = import.meta.env.DEV ? 'http://localhost:8000' : 'https://makhana-ai.onrender.com';
 
@@ -29,6 +30,9 @@ export default function Dashboard() {
   const [videoLoading, setVideoLoading] = useState(false);
   const [currentVideo, setCurrentVideo] = useState(null);
 
+  // Barcode Scanner Modal State
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
+
   // SAFETY CHECKS
   if (!state?.plan) {
     return (
@@ -42,21 +46,56 @@ export default function Dashboard() {
   // --- HANDLERS ---
   
   // 1. PDF DOWNLOAD HANDLER
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     const loadingToast = toast.loading("Generating PDF..."); // Loading toast
-    const element = document.getElementById('printable-area'); 
-    const opt = {
-      margin:       [10, 10],
-      filename:     `Diet_Plan_${state.plan.summary ? 'Personalized' : '7Day'}.pdf`,
-      image:        { type: 'jpeg', quality: 0.98 },
-      html2canvas:  { scale: 2 },
-      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-    };
-    // Generate PDF
-    html2pdf().set(opt).from(element).save().then(() => {
-        toast.dismiss(loadingToast);
-        toast.success("PDF Downloaded!");
-    });
+
+    try {
+      const element = document.getElementById('printable-area');
+
+      // Clone and prepare element for PDF
+      const clone = element.cloneNode(true);
+
+      // Remove print-hidden elements
+      const printHidden = clone.querySelectorAll('.print\\:hidden');
+      printHidden.forEach(el => el.remove());
+
+      // Show print-only elements
+      const printOnly = clone.querySelectorAll('.print\\:block, .hidden.print\\:block');
+      printOnly.forEach(el => {
+        el.classList.remove('hidden');
+        el.style.display = 'block';
+      });
+
+      const opt = {
+        margin:       [10, 10],
+        filename:     `Diet_Plan_${state.plan.summary ? 'Personalized' : '7Day'}.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          windowWidth: 1200,
+          letterRendering: true,
+          backgroundColor: '#ffffff'
+        },
+        jsPDF:        {
+          unit: 'mm',
+          format: 'a4',
+          orientation: 'portrait',
+          compress: true
+        },
+        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+      };
+
+      // Generate PDF from cloned element
+      await html2pdf().set(opt).from(clone).save();
+      toast.dismiss(loadingToast);
+      toast.success("PDF Downloaded!");
+    } catch (err) {
+      console.error('PDF Error:', err);
+      toast.dismiss(loadingToast);
+      toast.error("PDF generation failed");
+    }
   };
 
   const handleGrocery = async () => {
@@ -83,7 +122,7 @@ export default function Dashboard() {
     const savingToast = toast.loading("Saving your plan...");
 
     try {
-        await axios.post('https://makhana-ai.onrender.com/save-plan', {
+        await axios.post(`${API_URL}/save-plan`, {
             user_id: state.userId || state.plan?.user_id,
             phone: phone,
             title: planTitle
@@ -173,45 +212,63 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-50 to-white">
-      <div className="max-w-4xl mx-auto px-4 py-8 relative">
+      <div className="max-w-5xl mx-auto px-4 py-6 relative">
 
         {/* --- HEADER --- */}
-        <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 animate-fade-in">
-          <button onClick={() => navigate('/start')} className="flex items-center text-gray-500 hover:text-green-600 self-start md:self-auto transition-all duration-300 group">
-              <ArrowLeft size={16} className="mr-1 group-hover:-translate-x-1 transition-transform"/> New Plan
+        <div className="mb-6">
+          <button onClick={() => navigate('/start')} className="flex items-center text-gray-500 hover:text-green-600 mb-4 transition-all duration-300 group">
+              <ArrowLeft size={16} className="mr-1 group-hover:-translate-x-1 transition-transform"/> Back
           </button>
 
-          <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-emerald-500 text-center">Your 7-Day Plan 🥗</h1>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Your 7-Day Diet Plan</h1>
+              <p className="text-gray-500 mt-1">Personalized for your goals</p>
+            </div>
 
-          <div className="flex gap-2 flex-wrap justify-center">
-            {/* DOWNLOAD PDF BUTTON */}
-            <button
-                onClick={handleDownloadPDF}
-                className="bg-green-50 border border-green-200 text-green-700 px-4 py-2.5 rounded-xl font-bold flex items-center hover:bg-green-100 transition-all duration-300 hover:shadow-md"
-            >
-                <Download size={18} className="mr-2"/> PDF
-            </button>
+            <div className="flex gap-2 flex-wrap">
+              <button
+                  onClick={handleDownloadPDF}
+                  className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition flex items-center gap-2 text-sm font-medium"
+              >
+                  <Download size={16}/> PDF
+              </button>
 
-            <button
-                onClick={() => setShowSaveModal(true)}
-                className="bg-white border-2 border-green-600 text-green-600 px-4 py-2.5 rounded-xl font-bold flex items-center hover:bg-green-50 transition-all duration-300 hover:shadow-md"
-            >
-                <Save size={18} className="mr-2"/> Save
-            </button>
+              <button
+                  onClick={() => setShowSaveModal(true)}
+                  className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition flex items-center gap-2 text-sm font-medium"
+              >
+                  <Save size={16}/> Save
+              </button>
 
-            <button
-                onClick={handleGrocery}
-                disabled={loading}
-                className="bg-gradient-to-r from-green-600 to-green-500 text-white px-4 py-2.5 rounded-xl font-bold flex items-center hover:from-green-700 hover:to-green-600 disabled:opacity-50 transition-all duration-300 hover:shadow-lg"
-            >
-                {loading ? <Loader2 className="animate-spin mr-2"/> : <ShoppingCart size={18} className="mr-2"/>}
-                Grocery
-            </button>
+              <button
+                  onClick={() => setShowBarcodeScanner(true)}
+                  className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition flex items-center gap-2 text-sm font-medium"
+              >
+                  <ScanBarcode size={16}/> Scan
+              </button>
+
+              <button
+                  onClick={handleGrocery}
+                  disabled={loading}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center gap-2 text-sm font-medium disabled:opacity-50"
+              >
+                  {loading ? <Loader2 className="animate-spin" size={16}/> : <ShoppingCart size={16}/>}
+                  Grocery List
+              </button>
+            </div>
           </div>
         </div>
 
         {/* --- PRINTABLE AREA START --- */}
         <div id="printable-area">
+
+          {/* PDF Header - Only visible in print */}
+          <div className="hidden print:block mb-8 text-center border-b-2 border-gray-300 pb-6">
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">Your Personalized Diet Plan</h1>
+            <p className="text-lg text-gray-600">Powered by Ghar-Ka-Khana AI</p>
+            <p className="text-sm text-gray-500 mt-2">Generated on {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+          </div>
 
           {/* Summary Card */}
           {state.plan.summary && (
@@ -254,6 +311,41 @@ export default function Dashboard() {
                             {state.plan.daily_targets.medical_adjustments && (
                               <div className="mt-3 pt-3 border-t border-green-100 text-xs text-gray-600">
                                 <span className="font-semibold text-green-700">Medical Note:</span> {state.plan.daily_targets.medical_adjustments}
+                              </div>
+                            )}
+
+                            {/* Contextual Explanations */}
+                            {(state.plan.daily_targets.calories_reasoning || state.plan.daily_targets.protein_reasoning) && (
+                              <div className="mt-4 space-y-3">
+                                {state.plan.daily_targets.calories_reasoning && (
+                                  <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
+                                    <div className="text-xs font-semibold text-blue-900 mb-1 flex items-center gap-1">
+                                      <TrendingUp size={14} /> Why these calories?
+                                    </div>
+                                    <div className="text-xs text-blue-700 leading-relaxed">
+                                      {state.plan.daily_targets.calories_reasoning}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {state.plan.daily_targets.protein_reasoning && (
+                                  <div className="bg-purple-50 p-3 rounded-lg border border-purple-100">
+                                    <div className="text-xs font-semibold text-purple-900 mb-1 flex items-center gap-1">
+                                      <ShieldCheck size={14} /> Why this protein level?
+                                    </div>
+                                    <div className="text-xs text-purple-700 leading-relaxed">
+                                      {state.plan.daily_targets.protein_reasoning}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {state.plan.daily_targets.adherence_note && (
+                                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                                    <div className="text-xs text-gray-700 italic">
+                                      💡 {state.plan.daily_targets.adherence_note}
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -752,6 +844,15 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+      )}
+
+      {/* --- BARCODE SCANNER MODAL --- */}
+      {showBarcodeScanner && (
+        <BarcodeScanner
+          onClose={() => setShowBarcodeScanner(false)}
+          userDiet={state.plan?.diet_preference || 'Not specified'}
+          userGoal={state.plan?.goal || 'Not specified'}
+        />
       )}
 
       </div>

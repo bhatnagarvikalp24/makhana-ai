@@ -11,6 +11,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Login = lazy(() => import('./pages/Login'));
 const Grocery = lazy(() => import('./pages/Grocery'));
 const PlanList = lazy(() => import('./pages/PlanList'));
+// const Progress = lazy(() => import('./pages/Progress')); // TODO: Re-enable after OTP login implementation
 const ComingSoon = lazy(() => import('./pages/ComingSoon'));
 const Privacy = lazy(() => import('./pages/Privacy'));
 const Terms = lazy(() => import('./pages/Terms'));
@@ -70,6 +71,7 @@ function App() {
               <Route path="/my-plans" element={<PlanList />} />
               <Route path="/plan" element={<Dashboard />} />
               <Route path="/grocery" element={<Grocery />} />
+              {/* <Route path="/progress" element={<Progress />} /> */} {/* TODO: Re-enable after OTP login */}
               <Route path="/coming-soon" element={<ComingSoon />} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/terms" element={<Terms />} />

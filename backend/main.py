@@ -91,14 +91,21 @@ recipe_video_cache = {}
 app = FastAPI(
     title="AI Ghar-Ka-Diet API",
     description="Backend for personalized diet and grocery generation",
-    version="1.0.0"
+    version="1.0.0",
+    servers=[
+        {"url": "https://makhana-ai.onrender.com", "description": "Production Server"},
+        {"url": "http://localhost:8000", "description": "Local Development"}
+    ]
 )
 
 # --- 2. CORS MIDDLEWARE (CRUCIAL FOR REACT/NETLIFY) ---
 # Allow all origins temporarily for debugging - will restrict later
+default_origins = "https://makhana-ai.onrender.com,http://localhost:3000,http://localhost:5173"
+origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", default_origins).split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Temporarily allow all origins to fix CORS
+    allow_origins=origins,  # Temporarily allow all origins to fix CORS
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -119,9 +126,6 @@ async def add_process_time_header(request: Request, call_next):
     return response
 
 # --- 3. DATABASE MODELS (SQLAlchemy) ---
-# --- 3. DATABASE MODELS (UPDATED FOR COMMERCE) ---
-# CORRECT
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -225,6 +229,7 @@ class UserProfile(BaseModel):
     height_cm: float
     weight_kg: float
     goal: str
+    goal_pace: str = "balanced"  # New field: conservative, balanced, rapid
     diet_pref: str
     region: str
     budget: str
@@ -292,7 +297,6 @@ def get_stats(db: Session = Depends(get_db)):
     try:
         total_users = db.query(User).count()
         total_plans = db.query(DietPlan).count()
-        total_saved = db.query(SavedPlan).count()
 
         # Get recent users (last 10)
         recent_users = db.query(User).order_by(User.created_at.desc()).limit(10).all()
@@ -303,8 +307,7 @@ def get_stats(db: Session = Depends(get_db)):
         return {
             "stats": {
                 "total_users": total_users,
-                "total_plans": total_plans,
-                "total_saved_plans": total_saved
+                "total_plans": total_plans
             },
             "recent_users": [
                 {
@@ -329,8 +332,8 @@ def get_stats(db: Session = Depends(get_db)):
 @app.post("/upload-blood-report")
 async def analyze_blood_report(file: UploadFile = File(...)):
     """
-    Extracts text from an uploaded PDF blood report and uses AI 
-    to find nutritional deficiencies.
+    Extracts text from an uploaded PDF blood report and uses AI
+    to find nutritional deficiencies. Validates that the PDF is actually a medical report.
     """
     text_content = ""
     try:
@@ -340,37 +343,84 @@ async def analyze_blood_report(file: UploadFile = File(...)):
                 extracted = page.extract_text()
                 if extracted:
                     text_content += extracted + "\n"
-        
-        if not text_content:
-            return {"issues": [], "summary": "Could not read text from PDF."}
 
-        # 2. Analyze with AI
-        # UPGRADED MEDICAL INTELLIGENCE PROMPT
-        # UPGRADED "SENTIENT" MEDICAL PROMPT
+        if not text_content:
+            return {"error": "not_readable", "message": "Could not read text from PDF. Please ensure it's a clear, text-based PDF."}
+
+        # 2. VALIDATE: Check if this is actually a medical/blood report
+        medical_keywords = [
+            'hemoglobin', 'glucose', 'cholesterol', 'vitamin', 'blood', 'test', 'lab',
+            'pathology', 'hba1c', 'thyroid', 'tsh', 'hdl', 'ldl', 'triglycerides',
+            'creatinine', 'urea', 'platelet', 'wbc', 'rbc', 'hemato', 'serum',
+            'mg/dl', 'mmol', 'reference', 'range', 'normal', 'low', 'high'
+        ]
+
+        text_lower = text_content.lower()
+        keyword_matches = sum(1 for keyword in medical_keywords if keyword in text_lower)
+
+        # If less than 3 medical keywords found, likely not a blood report
+        if keyword_matches < 3:
+            logger.warning(f"PDF validation failed: only {keyword_matches} medical keywords found")
+            return {
+                "error": "not_medical",
+                "message": "This doesn't appear to be a blood report. Please upload a valid medical lab report containing test results.",
+                "keyword_matches": keyword_matches
+            }
+
+        # 3. Analyze with AI - ENHANCED VERSION with specific values
         system_prompt = """
         You are an expert Functional Nutritionist analyzing a blood report.
-        
-        Your Task: Detect nutritional imbalances and classify their severity based on the context provided in the text.
-        
+
+        Your Task: Detect nutritional imbalances, extract specific values, and provide actionable dietary guidance.
+
         CRITICAL INSTRUCTION - SEVERITY CLASSIFICATION:
-        1. **Borderline / Slight Deviation:** - If a value is slightly out of range or described as "Borderline", "Mildly Elevated", or "Slightly Low".
-           - Label these as: "Monitor: [Nutrient/Marker]" (e.g., "Monitor: Cholesterol").
+        1. **Borderline / Slight Deviation:**
+           - If a value is slightly out of range or described as "Borderline", "Mildly Elevated", or "Slightly Low".
+           - Label these as: "Monitor: [Nutrient/Marker]" (e.g., "Monitor: Cholesterol (205 mg/dL)").
            - Feedback Goal: Neutral, preventative.
-           
+
         2. **High / Clinical Deficiency:**
            - If a value is significantly out of range, flagged as "High", "Low", "Abnormal", or "Critical".
-           - Label these as: "Action: [Nutrient/Marker]" (e.g., "Action: High Sugar", "Action: Low Iron").
+           - Label these as: "Action: [Nutrient/Marker]" (e.g., "Action: Low Vitamin D (12 ng/mL)", "Action: High HbA1c (7.2%)").
            - Feedback Goal: Alert, strict dietary correction needed.
 
-        3. **Ignore Non-Nutritional:** - Ignore structural markers (Platelets, WBC) unless critically dangerous. Focus on Diet (Vitamins, Lipids, Sugar, Thyroid).
+        3. **Focus on Nutrition-Relevant Markers:**
+           - Prioritize: Vitamin D, B12, Iron/Ferritin, Hemoglobin, HbA1c, Glucose, Cholesterol (Total, HDL, LDL), Triglycerides, Thyroid (TSH, T3, T4)
+           - Ignore: Platelet count, WBC count (unless extremely abnormal)
+
+        4. **Extract Specific Values:**
+           - Try to include the actual value and unit when possible
+           - Example: "Action: Low Vitamin D (15 ng/mL, normal >30)"
 
         OUTPUT FORMAT (JSON ONLY):
-        { 
-            "issues": ["Monitor: Cholesterol", "Action: Low Vitamin D"], 
-            "summary": "Your Vitamin D requires immediate attention with iron-rich foods. Your Cholesterol is slightly elevated, so we will gently reduce fried foods." 
+        {
+            "issues": [
+                "Monitor: Cholesterol (205 mg/dL)",
+                "Action: Low Vitamin D (12 ng/mL)",
+                "Action: High HbA1c (7.2%)"
+            ],
+            "summary": "Your Vitamin D is critically low and needs immediate dietary attention with fortified foods and sunlight exposure. HbA1c indicates pre-diabetes - we'll focus on low GI foods. Cholesterol is slightly elevated, so we'll limit fried and processed foods.",
+            "deficiencies": [
+                {
+                    "marker": "Vitamin D",
+                    "value": "12 ng/mL",
+                    "status": "Low",
+                    "severity": "high",
+                    "dietary_focus": "Increase fatty fish, egg yolks, fortified milk, and sunlight exposure"
+                },
+                {
+                    "marker": "HbA1c",
+                    "value": "7.2%",
+                    "status": "High",
+                    "severity": "high",
+                    "dietary_focus": "Low GI carbs, reduce sugar, increase fiber"
+                }
+            ]
         }
         """
-        analysis = call_ai_json(system_prompt, f"Report Text: {text_content[:3000]}") # Limit chars for cost
+        analysis = call_ai_json(system_prompt, f"Report Text: {text_content[:3500]}") # Increased limit for better analysis
+
+        logger.info(f"Blood report analysis successful: {len(analysis.get('issues', []))} issues found")
         return analysis
 
     except Exception as e:
@@ -409,9 +459,9 @@ async def generate_diet(profile: UserProfile, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=500, detail="Database error occurred")
 
-    # 2. AI GENERATION - COMPREHENSIVE NUTRITION PLANNING ENGINE
+    # 2. AI GENERATION - COMPREHENSIVE NUTRITION PLANNING ENGINE WITH PRECISE CALCULATIONS
     system_prompt = f"""You are a **nutrition planning engine** for a health and fitness web platform.
-Your task is to generate **goal-oriented, medically-aware, and outcome-driven diet plans**, not just static food charts.
+Your task is to generate **goal-oriented, medically-aware, and outcome-driven diet plans** with PRECISE, CALCULATED nutrition targets and clear explanations.
 
 ---
 
@@ -420,6 +470,7 @@ Your task is to generate **goal-oriented, medically-aware, and outcome-driven di
 - **Age:** {profile.age} years, **Gender:** {profile.gender}
 - **Current Stats:** {profile.height_cm}cm, {profile.weight_kg}kg
 - **Goal:** {profile.goal}
+- **Goal Pace:** {profile.goal_pace} (conservative/balanced/rapid)
 - **Diet Preference:** {profile.diet_pref}
 - **Region:** {profile.region}
 - **Medical Conditions:** {profile.medical_manual if profile.medical_manual else "None"}
@@ -443,49 +494,196 @@ For this user:
 
 **Calculate their exact BMR now.**
 
-#### STEP 2: Calculate TDEE (Total Daily Energy Expenditure)
-BMR × Activity multiplier:
-- Sedentary (office job): BMR × 1.2
-- Light activity: BMR × 1.375
-- Moderate (3-5 days exercise): BMR × 1.55
-- Active (6-7 days): BMR × 1.725
+#### STEP 2: Estimate TDEE (Total Daily Energy Expenditure)
+**CRITICAL: Since activity level is NOT explicitly provided, use CONSERVATIVE estimates!**
 
-**Assume moderate activity unless user is 60+ (then use sedentary).**
+Activity multipliers (reference):
+- Sedentary (office job, minimal movement): BMR × 1.2
+- Light activity (light walks, standing): BMR × 1.3-1.4
+- Moderate (regular exercise 3-4x/week): BMR × 1.5-1.55
+- Active (intense training 5-6x/week): BMR × 1.65-1.75
 
-#### STEP 3: Adjust Calories Based on Goal
+**DEFAULT ASSUMPTION (be conservative):**
+- **Age < 60:** Use BMR × 1.3-1.4 (light activity) - DO NOT assume moderate!
+- **Age 60+:** Use BMR × 1.2 (sedentary for safety)
+
+**IMPORTANT FOR EXPLANATIONS:**
+- DO NOT state a precise TDEE number (e.g., "your TDEE is 2100 kcal")
+- Instead use: "estimated maintenance calories" or "maintenance range of X-Y kcal"
+- This accounts for individual variation in daily movement
+
+#### STEP 3: Adjust Calories Based on Goal AND Goal Pace
 Goal: {profile.goal}
+Goal Pace: {profile.goal_pace}
 
-**Weight Loss:**
-- Calories = TDEE - 500 (for 0.5kg/week loss)
-- Aggressive: TDEE - 750 (for 0.75kg/week)
-- Never go below 1200 for women, 1500 for men
+**CRITICAL: Use the goal_pace to determine calorie deficit/surplus!**
 
-**Muscle Gain:**
-- Calories = TDEE + 300-500 (surplus for muscle)
+**For Weight Loss:**
+- **Conservative:** ~15-20% deficit from estimated maintenance = ~0.25-0.5kg/week loss
+- **Balanced:** ~20-25% deficit from estimated maintenance = ~0.5-0.75kg/week loss
+- **Rapid:** ~25-30% deficit from estimated maintenance = ~0.75-1kg/week loss
+- **Safety Floor:** Never go below 1200 kcal for women, 1500 kcal for men
 
-**Balanced Diet / Maintenance:**
-- Calories = TDEE (maintenance)
+**For Muscle Gain:**
+- **Conservative:** +250-300 kcal surplus (lean gains)
+- **Balanced:** +300-400 kcal surplus (steady progress)
+- **Rapid:** +400-500 kcal surplus (faster but more fat)
 
-**Diabetes / Medical:**
-- Calories = TDEE - 300 (mild deficit for health)
+**For Weight Gain:**
+- **Conservative:** +300-400 kcal
+- **Balanced:** +400-500 kcal
+- **Rapid:** +500-600 kcal
 
-**Provide a 100-150 calorie range, NOT "1800-2000"!**
-Example: If TDEE = 2100, weight loss = "1550-1650 kcal"
+**For Balanced Diet / Maintenance:**
+- Calories = estimated maintenance (ignore goal_pace)
 
-#### STEP 4: Calculate Protein
-**DO NOT use 80-100g for everyone!**
+**For Medical Conditions:**
+- Calories = estimated maintenance - 200-300 kcal (mild deficit, ignore goal_pace)
 
-Goal-based protein:
-- **Weight Loss:** 1.6-2.0g per kg bodyweight (preserve muscle)
-- **Muscle Gain:** 1.8-2.2g per kg bodyweight
-- **Balanced Diet (Age < 60):** 1.0-1.2g per kg
-- **Balanced Diet (Age 60+):** 0.8-1.0g per kg (lower kidney stress)
-- **Diabetes:** 1.2-1.5g per kg
+**CALCULATION VALIDATION (CRITICAL - MUST FOLLOW):**
+1. Calculate BMR using Mifflin-St Jeor
+2. Estimate TDEE range = BMR × 1.3 to BMR × 1.4 (or 1.2 for 60+)
+3. Take the MIDPOINT of TDEE range for calculations
+4. Apply deficit/surplus based on goal_pace
+5. Round to nearest 50 kcal
+6. Create a 50-80 kcal range around the target
 
-For this user ({profile.weight_kg}kg, {profile.age}y, Goal: {profile.goal}):
-**Calculate exact protein in grams.**
+**Example calculation for 29M, 83kg, 177cm, Weight Loss, Balanced:**
+- BMR = (10 × 83) + (6.25 × 177) - (5 × 29) + 5 = 1836 kcal
+- TDEE range = 1836 × 1.3 to 1836 × 1.4 = 2387-2570 kcal
+- Midpoint = 2479 kcal (call this "estimated maintenance")
+- Balanced deficit (22.5%) = 2479 - 557 = 1922 kcal
+- Final target: **1900-1950 kcal**
 
-Example: 68-year-old woman, 60kg, balanced diet → 48-60g protein (NOT 80-100g!)
+**In explanation, say:**
+"Your estimated maintenance calories are around 2400-2550 kcal. For balanced weight loss, we're applying a moderate deficit to target 0.5-0.75kg per week."
+OR if you want to avoid stating TDEE:
+"Based on your BMR and typical activity, we've designed a calibrated deficit for steady, sustainable fat loss of 0.5-0.75kg per week."
+
+**NEVER state exact TDEE if it creates math inconsistency!**
+
+#### STEP 4: Calculate Protein Based on Goal, Goal Pace, and Body Weight
+**CRITICAL: Use SUSTAINABLE, ACHIEVABLE protein ranges - NOT athlete-level defaults!**
+
+User Stats: {profile.weight_kg}kg, {profile.age}y, Goal: {profile.goal}, Pace: {profile.goal_pace}
+
+**REFINED PROTEIN GUIDELINES (more realistic for general population):**
+
+**For Weight Loss:**
+- **Conservative:** 1.4-1.6g per kg bodyweight (adequate muscle preservation, easier adherence)
+- **Balanced:** 1.6-1.8g per kg bodyweight (good muscle preservation, sustainable)
+- **Rapid:** 1.7-1.9g per kg bodyweight (higher end for aggressive deficit, conditional on training)
+
+**For Muscle Gain:**
+- **Conservative:** 1.6-1.8g per kg bodyweight (lean gains, no bloat)
+- **Balanced:** 1.7-1.9g per kg bodyweight (optimal for most lifters)
+- **Rapid:** 1.8-2.0g per kg bodyweight (only if training 5-6x/week)
+
+**For Weight Gain (general):**
+- **Conservative:** 1.4-1.6g per kg
+- **Balanced:** 1.5-1.7g per kg
+- **Rapid:** 1.6-1.8g per kg
+
+**For Balanced Diet / Maintenance:**
+- **Age < 60:** 1.2-1.5g per kg bodyweight (health-focused, not performance)
+- **Age 60+:** 0.9-1.1g per kg bodyweight (reduce kidney stress, adequate for muscle maintenance)
+- Ignore goal_pace for maintenance
+
+**For Medical Conditions:**
+- 1.0-1.3g per kg (unless kidney issues, then 0.8-1.0g per kg)
+
+**CALCULATION RULES:**
+1. Calculate: weight × lower_multiplier and weight × higher_multiplier
+2. Round to nearest 5g
+3. Keep range tight: 10-20g difference max
+4. Final output example: "120-135g" NOT "120-160g"
+
+**Example for 83kg male, weight loss, balanced:**
+- Lower: 83 × 1.6 = 133g → round to **130g**
+- Upper: 83 × 1.8 = 149g → round to **150g**
+- Final: **130-150g protein**
+
+**For this specific user:** {profile.weight_kg}kg, {profile.age}y, {profile.goal}, {profile.goal_pace}
+→ Calculate using the appropriate multiplier range above
+
+---
+
+### 🔸 STEP 5: MEDICAL CONDITIONS & DIETARY ADJUSTMENTS
+
+**User's Medical Conditions:** {profile.medical_manual if profile.medical_manual else "None"}
+
+**CRITICAL: If user has medical conditions, you MUST adapt the diet plan accordingly!**
+
+**Condition-Specific Dietary Adjustments:**
+
+**1. Diabetes / Pre-diabetes / High HbA1c:**
+- ✅ Focus on LOW GI carbs: whole grains, millets, oats, brown rice
+- ✅ Increase fiber intake: vegetables, legumes, whole fruits (not juice)
+- ✅ Protein with every meal to stabilize blood sugar
+- ❌ AVOID: White rice, maida products, refined sugar, sugary drinks, fruit juices
+- ❌ LIMIT: Potatoes, white bread, processed foods
+- 📊 Carb distribution: Spread across meals, avoid large carb loads
+- **Meal timing:** Never skip meals, eat every 3-4 hours
+
+**2. Thyroid Issues (Hypo/Hyper):**
+- **For Hypothyroid:**
+  - ✅ Increase: Iodine-rich foods (iodized salt, fish, dairy)
+  - ✅ Include: Selenium (Brazil nuts, eggs, fish), Zinc (pumpkin seeds, chickpeas)
+  - ❌ LIMIT: Raw cruciferous vegetables in excess (cabbage, cauliflower, broccoli - cook them)
+  - ❌ AVOID: Soy products in large amounts (can interfere with medication)
+- **For Hyperthyroid:**
+  - ✅ Focus on: Calcium-rich foods, anti-inflammatory foods
+  - ❌ LIMIT: Iodine intake, caffeine
+
+**3. PCOD / PCOS:**
+- ✅ Focus on: Low GI carbs, high fiber, anti-inflammatory foods
+- ✅ Increase: Omega-3 (fatty fish, walnuts, flaxseeds), protein, cinnamon
+- ✅ Include: Spearmint tea, whole grains, leafy greens
+- ❌ AVOID: Refined carbs, sugar, processed foods, trans fats
+- ❌ LIMIT: Dairy (can worsen symptoms for some), red meat
+- **Key:** Manage insulin resistance through diet
+
+**4. High Cholesterol:**
+- ✅ Increase: Soluble fiber (oats, barley, apples, beans), omega-3 fatty acids
+- ✅ Include: Nuts (almonds, walnuts), olive oil, fatty fish, garlic
+- ❌ AVOID: Deep-fried foods, saturated fats, trans fats, processed meats
+- ❌ LIMIT: Red meat, full-fat dairy, egg yolks (max 2-3 per week), coconut oil
+- **Focus:** Replace saturated fats with unsaturated fats
+
+**5. Hypertension (High Blood Pressure):**
+- ✅ Focus on: DASH diet principles - fruits, vegetables, whole grains, low-fat dairy
+- ✅ Increase: Potassium (bananas, spinach, beans), magnesium, fiber
+- ✅ Include: Beetroot, garlic, dark chocolate (70%+), hibiscus tea
+- ❌ CRITICAL: LOW SODIUM - avoid pickles, papad, packaged snacks, processed foods
+- ❌ LIMIT: Salt to <5g per day (1 tsp), alcohol, caffeine
+- **Cooking:** Use herbs and spices instead of salt
+
+**6. Low Vitamin D (from blood report):**
+- ✅ Increase: Fatty fish (salmon, mackerel), egg yolks, fortified milk, mushrooms (sun-exposed)
+- ✅ Recommendation: 15-20 min sunlight exposure daily (before 10 AM or after 4 PM)
+- Consider supplementation if levels <20 ng/mL
+
+**7. Low Iron / Anemia:**
+- ✅ Increase: Iron-rich foods (spinach, beetroot, dates, raisins, jaggery)
+- ✅ For non-veg: Chicken liver, red meat (moderation)
+- ✅ Include: Vitamin C with meals (lemon, amla, tomatoes) - enhances iron absorption
+- ❌ AVOID: Tea/coffee with meals (inhibits iron absorption)
+
+**8. High Triglycerides:**
+- ✅ Increase: Omega-3, fiber, whole grains
+- ❌ AVOID: Refined carbs, sugar, alcohol, fruit juices
+- ❌ LIMIT: Simple carbs, saturated fats
+
+**IMPLEMENTATION RULES:**
+1. **Multiple Conditions:** If user has multiple conditions, prioritize adjustments that satisfy ALL conditions
+   - Example: Diabetes + High Cholesterol → Low GI + Low saturated fat foods
+2. **Meal Modifications:** Explicitly modify meal suggestions based on conditions
+   - Example: If diabetic, replace white rice with brown rice/quinoa/millets
+3. **Medical Adjustments Field:** Clearly state what was adjusted in the `medical_adjustments` field
+4. **Safety:** If conditions conflict or are severe (e.g., kidney issues + high protein need), recommend conservative approach
+
+**For this user's conditions:** {profile.medical_manual if profile.medical_manual else "None - proceed with standard recommendations"}
+→ Apply the above adjustments to EVERY meal in the 7-day plan
 
 ---
 
@@ -499,12 +697,58 @@ Briefly restate:
 - Current body stats and nutritional focus (calorie deficit/surplus, protein optimization, sugar control, etc.)
 - Any medical adjustments made
 
-#### 2️⃣ Daily Nutrition Targets
-**CRITICAL:** Use the EXACT calculated values above. NO templates!
-- Target daily calories (narrow 100-150 kcal range based on calculations)
-- Daily protein intake (exact grams based on formula)
-- Carbohydrates and fats (high-level guidance, adapt to goal)
-- Any medical constraints applied (low GI foods, low sodium, etc.)
+#### 2️⃣ Daily Nutrition Targets (WITH EXPLANATIONS)
+**CRITICAL:** Use EXACT calculated values AND provide COACH-LIKE, CONFIDENCE-BUILDING explanations!
+
+**EXPLANATION TONE GUIDELINES:**
+- Keep explanations SHORT (2-4 lines max)
+- Use encouraging, coach-like language
+- Avoid overly technical jargon
+- Use conditional language where appropriate ("higher end if training hard")
+- Emphasize sustainability and adherence over perfection
+- Build trust by showing logic WITHOUT exposing math that can contradict
+
+**You MUST include:**
+
+**Calories:** Narrow 50-80 kcal range (e.g., "1900-1950 kcal")
+**Calories Reasoning Examples:**
+
+✅ GOOD (avoids stating exact TDEE when risky):
+"Based on your age, stats, and typical activity, your estimated maintenance is around 2400-2550 kcal. For balanced weight loss, we've designed a calibrated deficit to support steady fat loss of 0.5-0.75kg per week."
+
+✅ GOOD (doesn't mention TDEE at all):
+"We've calculated a sustainable calorie target that creates a steady, manageable deficit for your goal. This supports 0.5-0.75kg loss per week without feeling overly restrictive."
+
+✅ GOOD (for maintenance):
+"These calories are designed to maintain your current weight while supporting your daily energy needs and overall health."
+
+❌ BAD (exposes math inconsistency):
+"Your TDEE is 2100 kcal. We're applying a 25% deficit = 1575 kcal." [But then shows 1900-1950 kcal - CONTRADICTORY!]
+
+**Protein:** Tight 10-20g range (e.g., "130-150g")
+**Protein Reasoning Examples:**
+
+✅ GOOD (sustainable, not aggressive):
+"This protein level (1.6-1.8g per kg) supports muscle preservation during your deficit while staying achievable with normal meals. Higher end if you're training regularly."
+
+✅ GOOD (emphasizes benefits):
+"Adequate protein helps preserve lean mass, keeps you satisfied between meals, and supports recovery. This range is sustainable for most people."
+
+✅ GOOD (for maintenance):
+"This moderate protein intake (1.2-1.5g per kg) supports overall health and muscle maintenance without being excessive."
+
+❌ BAD (too technical or aggressive):
+"At 2.0-2.2g per kg bodyweight, this maximizes muscle protein synthesis and minimizes catabolism during hypocaloric conditions."
+
+**Other Required Fields:**
+- **Carbs & Fats Guidance:** Brief, goal-appropriate
+- **Medical Adjustments:** **CRITICAL - Be specific about what was changed!**
+  - If NO conditions: "None - standard healthy diet approach"
+  - If conditions exist: List specific modifications made
+  - Example: "Diabetes: Using low GI carbs (brown rice, millets, oats). Avoiding white rice and refined flour. Including protein with every meal to stabilize blood sugar."
+  - Example: "High Cholesterol: Limiting saturated fats, avoiding deep-fried foods. Using olive oil instead of ghee. Including oats and walnuts for heart health."
+  - Example: "PCOD + Diabetes: Combined low GI approach with anti-inflammatory foods. Increased omega-3 and fiber. Limited dairy products."
+- **Adherence Note:** "These targets can be adjusted by ±100 kcal based on your energy levels and how you feel. Consistency matters more than hitting exact numbers daily."
 
 #### 3️⃣ Meal Structure (Dynamic, NOT fixed 4 meals)
 Include meals **only if beneficial**:
@@ -614,28 +858,43 @@ Include:
 
 ### 🔸 FINAL ENFORCEMENT: REAL EXAMPLES TO FOLLOW
 
-**Example 1: 68-year-old Woman, 60kg, 160cm, Balanced Diet**
+**Example 1: 68-year-old Woman, 60kg, 160cm, Balanced Diet (Maintenance)**
 - BMR = (10 × 60) + (6.25 × 160) - (5 × 68) - 161 = 1139 kcal
-- TDEE (sedentary) = 1139 × 1.2 = 1367 kcal
-- Goal: Balanced → Calories = TDEE = **"1300-1400 kcal"** (NOT 1800-2000!)
-- Protein (age 60+, balanced) = 0.8-1.0g/kg = **"48-60g"** (NOT 80-100g!)
-- Activity: "Light walking, stretching, chair exercises" (NOT "strength training + cardio"!)
+- TDEE (sedentary, age 60+) = 1139 × 1.2 = 1367 kcal
+- Goal: Balanced/Maintenance → Calories = **"1350-1400 kcal"**
+- Protein (age 60+, maintenance) = 0.9-1.1g/kg = 60 × 0.9 to 60 × 1.1 = **"55-65g"**
+- Activity: "Light walking, stretching, chair exercises"
 
-**Example 2: 25-year-old Man, 75kg, 175cm, Muscle Gain**
+**Example 2: 25-year-old Man, 75kg, 175cm, Muscle Gain, Balanced**
 - BMR = (10 × 75) + (6.25 × 175) - (5 × 25) + 5 = 1719 kcal
-- TDEE (moderate) = 1719 × 1.55 = 2664 kcal
-- Goal: Muscle Gain → Calories = TDEE + 400 = **"2950-3100 kcal"**
-- Protein = 1.8-2.2g/kg = **"135-165g"**
+- TDEE range = 1719 × 1.3 to 1719 × 1.4 = 2235-2407 kcal
+- Midpoint = 2321 kcal
+- Balanced surplus (+350 kcal) = 2321 + 350 = 2671 kcal
+- Final: **"2650-2700 kcal"**
+- Protein (1.7-1.9g/kg) = 75 × 1.7 to 75 × 1.9 = **"128-143g"**
 - Activity: "Strength training with progressive overload, 4-5 days/week"
 
-**Example 3: 40-year-old Woman, 70kg, 165cm, Weight Loss**
+**Example 3: 40-year-old Woman, 70kg, 165cm, Weight Loss, Balanced**
 - BMR = (10 × 70) + (6.25 × 165) - (5 × 40) - 161 = 1370 kcal
-- TDEE (moderate) = 1370 × 1.55 = 2124 kcal
-- Goal: Weight Loss → Calories = TDEE - 500 = **"1550-1650 kcal"**
-- Protein = 1.6-2.0g/kg = **"112-140g"**
-- Activity: "Cardio (walking/jogging) + light strength, 5-6 days/week"
+- TDEE range = 1370 × 1.3 to 1370 × 1.4 = 1781-1918 kcal
+- Midpoint = 1850 kcal (estimated maintenance)
+- Balanced deficit (22.5%) = 1850 - 416 = 1434 kcal
+- Final: **"1400-1450 kcal"**
+- Protein (1.6-1.8g/kg) = 70 × 1.6 to 70 × 1.8 = **"110-125g"**
 
-**→ FOLLOW THIS PATTERN! Calculate for {profile.name}: {profile.age}y, {profile.gender}, {profile.weight_kg}kg, {profile.height_cm}cm, {profile.goal}**
+**FINAL VALIDATION CHECKLIST (USE THIS BEFORE GENERATING OUTPUT):**
+1. ✅ Did I calculate BMR using the correct formula?
+2. ✅ Did I use CONSERVATIVE TDEE (1.3-1.4×BMR, or 1.2 for 60+)?
+3. ✅ Did I apply the correct deficit/surplus % for the goal_pace?
+4. ✅ Is my final calorie range 50-80 kcal wide (not 200+)?
+5. ✅ Does my calories_reasoning match the math (or avoid stating exact numbers)?
+6. ✅ Did I use SUSTAINABLE protein multipliers (NOT 2.0+ for everyone)?
+7. ✅ Is my protein range 10-20g wide (not 30+)?
+8. ✅ Is my protein_reasoning coach-like and encouraging (not technical)?
+9. ✅ Did I include the adherence note?
+10. ✅ Will users TRUST this output (no contradictions)?
+
+**→ NOW Calculate for {profile.name}: {profile.age}y, {profile.gender}, {profile.weight_kg}kg, {profile.height_cm}cm, {profile.goal}, {profile.goal_pace}**
 
 ---
 
@@ -646,11 +905,14 @@ Include:
 {{
   "summary": "Personalized 2-3 sentence summary with actual stats and adjustments",
   "daily_targets": {{
-    "calories": "[CALCULATED VALUE from above, e.g., 1550-1650 kcal]",
-    "protein": "[CALCULATED VALUE, e.g., 112-140g]",
-    "carbs_guidance": "Moderate, focus on whole grains" OR "Low GI carbs" if diabetic,
-    "fats_guidance": "Healthy fats from nuts, ghee",
-    "medical_adjustments": "[Specific to user's conditions, or 'None' if healthy]"
+    "calories": "[CALCULATED narrow 50-80 kcal range, e.g., 1900-1950 kcal]",
+    "calories_reasoning": "[MANDATORY: Coach-like explanation, 2-4 lines. Choose GOOD examples from guidelines above. AVOID stating exact TDEE if it creates math contradictions. Example: 'Based on your age, stats, and typical activity, your estimated maintenance is around 2400-2550 kcal. For balanced weight loss, we've designed a calibrated deficit to support steady fat loss of 0.5-0.75kg per week.']",
+    "protein": "[CALCULATED tight 10-20g range using SUSTAINABLE multipliers, e.g., 130-150g]",
+    "protein_reasoning": "[MANDATORY: Coach-like, 2-3 lines. Use GOOD examples from guidelines. AVOID athlete-level justifications. Example: 'This protein level (1.6-1.8g per kg) supports muscle preservation during your deficit while staying achievable with normal meals. Higher end if you're training regularly.']",
+    "carbs_guidance": "[Adapt based on medical conditions. Example: 'Moderate whole grains' OR 'Low GI carbs (brown rice, oats, millets)' if diabetic]",
+    "fats_guidance": "[Adapt based on medical conditions. Example: 'Healthy fats from nuts, olive oil' OR 'Limited saturated fats, focus on omega-3' if high cholesterol]",
+    "medical_adjustments": "[CRITICAL: If conditions exist, be specific! Example: 'Diabetes: Using low GI carbs, avoiding refined flour and white rice. Including protein with every meal.' OR 'None - standard healthy approach' if no conditions]",
+    "adherence_note": "These targets can be adjusted by ±100 kcal based on your energy levels and how you feel. Consistency matters more than hitting exact numbers daily."
   }},
   "days": [
     {{
@@ -727,33 +989,73 @@ Focus on practical Indian meals with clear outcome expectations."""
 @app.post("/generate-grocery/{plan_id}")
 async def generate_grocery(plan_id: int, db: Session = Depends(get_db)):
     """
-    Retrieves a diet plan and converts it into a consolidated grocery list.
+    Retrieves a diet plan and converts it into a consolidated grocery list with:
+    - Price estimates and budget analysis
+    - Seasonal availability warnings
+    - Smart swap suggestions
+    - Multi-store price comparison
+    - Bulk buying optimization
+    - Expiry date warnings
+    - Shopping route optimization
     """
     # 1. Fetch Plan
     plan = db.query(DietPlan).filter(DietPlan.id == plan_id).first()
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    # 2. AI Conversion
+    # 2. Get current month and week for seasonal/trend analysis
+    current_month = datetime.now().strftime("%B")
+    current_week = datetime.now().isocalendar()[1]
+
+    # 3. MINIMAL Grocery Intelligence - Force valid JSON
     system_prompt = """
-    You are a Grocery Assistant. Analyze the meal plan and generate a shopping list.
-    1. Consolidate items (e.g., don't say 'onion' 3 times, say '500g Onion').
-    2. Output JSON:
-    {
-      "categories": [
-        { "name": "Vegetables", "items": ["1kg Potato", "500g Tomato"] },
-        { "name": "Spices & Oils", "items": ["100g Cumin", "1L Mustard Oil"] }
-      ]
-    }
-    """
-    
-    grocery_data = call_ai_json(system_prompt, f"Meal Plan JSON: {plan.plan_json}")
+Generate a grocery shopping list from the meal plan.
 
-    # 3. Save Update
-    plan.grocery_json = json.dumps(grocery_data)
-    db.commit()
+CRITICAL: Output MUST be valid JSON. Keep all text simple with no special chars.
 
-    return grocery_data
+Use these prices:
+Vegetables Rs 50, Fruits Rs 80, Dairy Rs 100, Grains Rs 60, Protein Rs 200
+
+Output this exact structure:
+{
+  "categories": [
+    {"name": "Vegetables", "items": [{"name": "Tomato", "quantity": "1kg", "display": "1kg Tomato", "estimated_price": 50, "price_range": "Rs 40-60", "seasonal_status": "available", "seasonal_warning": null, "alternative": null, "used_in_meals": ["Day 1"]}]}
+  ],
+  "budget_analysis": {"total_estimated": 1200, "breakdown": {"vegetables": 300, "dairy_proteins": 400, "grains_pulses": 300, "spices": 100, "other": 100}, "budget_level": "moderate", "savings_potential": 200, "smart_swaps": [{"original": "Paneer", "alternative": "Tofu", "savings": 50, "reason": "Cheaper protein"}]},
+  "seasonal_summary": {"out_of_season_count": 0, "warnings": [], "message": "All items available"},
+  "shopping_tips": ["Buy from local market", "Buy in bulk"]
+}
+
+RULES:
+- Keep ALL text under 30 chars
+- Use only letters numbers and spaces
+- NO commas apostrophes or special punctuation in any text field
+- Use null not empty string
+"""
+
+    user_prompt = f"Meal plan: {plan.plan_json[:2000]}"
+
+    try:
+        logger.info(f"Generating enhanced grocery list for plan {plan_id}")
+        grocery_data = call_ai_json(system_prompt, user_prompt)
+
+        # Validate response structure
+        if "error" in grocery_data:
+            logger.error(f"AI grocery generation failed: {grocery_data}")
+            raise HTTPException(status_code=500, detail="Failed to generate grocery list")
+
+        # 4. Save Update
+        plan.grocery_json = json.dumps(grocery_data)
+        db.commit()
+
+        logger.info(f"Enhanced grocery list generated successfully. Total: ₹{grocery_data.get('budget_analysis', {}).get('total_estimated', 0)}")
+        return grocery_data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating grocery list: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate grocery list")
 
 @app.post("/checkout")
 async def create_razorpay_order(request: OrderRequest):
@@ -1064,8 +1366,229 @@ async def get_recipe_video(request: RecipeVideoRequest):
             "error": str(e)
         }
 
+# --- BARCODE SCANNER ENDPOINT ---
+
+class BarcodeScanRequest(BaseModel):
+    barcode: str
+    user_diet_preference: Optional[str] = None
+    user_goal: Optional[str] = None
+
+@app.post("/scan-barcode")
+async def scan_barcode(request: BarcodeScanRequest):
+    """
+    Scan a product barcode and get nutrition info + diet compatibility.
+    Uses Open Food Facts API (free, 2M+ products, strong Indian coverage).
+    """
+    try:
+        barcode = request.barcode.strip()
+
+        # 1. Look up product in Open Food Facts
+        openfoodfacts_url = f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
+
+        response = requests.get(openfoodfacts_url, timeout=10)
+        data = response.json()
+
+        if data.get("status") != 1:
+            return {
+                "success": False,
+                "error": "Product not found in database. Try another barcode or check if it's readable."
+            }
+
+        product = data.get("product", {})
+
+        # 2. Extract product info
+        product_name = product.get("product_name", "Unknown Product")
+        brands = product.get("brands", "Unknown Brand")
+        quantity = product.get("quantity", "N/A")
+
+        # 3. Extract nutrition (per 100g)
+        nutriments = product.get("nutriments", {})
+        nutrition_info = {
+            "calories": nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0)),
+            "protein": nutriments.get("proteins_100g", nutriments.get("proteins", 0)),
+            "carbs": nutriments.get("carbohydrates_100g", nutriments.get("carbohydrates", 0)),
+            "sugar": nutriments.get("sugars_100g", nutriments.get("sugars", 0)),
+            "fat": nutriments.get("fat_100g", nutriments.get("fat", 0)),
+            "saturated_fat": nutriments.get("saturated-fat_100g", nutriments.get("saturated-fat", 0)),
+            "fiber": nutriments.get("fiber_100g", nutriments.get("fiber", 0)),
+            "sodium": nutriments.get("sodium_100g", nutriments.get("sodium", 0)),
+        }
+
+        # 4. Check ingredients for diet compatibility
+        ingredients_text = product.get("ingredients_text", "").lower()
+        allergens = product.get("allergens", "").lower()
+
+        # Diet flags
+        is_vegetarian = "non-vegetarian" not in product.get("labels", "").lower()
+        is_vegan = "vegan" in product.get("labels", "").lower()
+
+        # Check for non-veg ingredients
+        non_veg_keywords = ["chicken", "mutton", "beef", "pork", "fish", "egg", "meat", "gelatin"]
+        contains_non_veg = any(keyword in ingredients_text for keyword in non_veg_keywords)
+
+        if contains_non_veg:
+            is_vegetarian = False
+            is_vegan = False
+
+        # 5. AI Analysis - Diet Compatibility & Alternatives
+        ai_prompt = f"""
+You are a nutrition expert analyzing a scanned product for an Indian user.
+
+Product: {product_name} by {brands}
+Quantity: {quantity}
+
+Nutrition (per 100g):
+- Calories: {nutrition_info['calories']} kcal
+- Protein: {nutrition_info['protein']}g
+- Carbs: {nutrition_info['carbs']}g (Sugar: {nutrition_info['sugar']}g)
+- Fat: {nutrition_info['fat']}g (Saturated: {nutrition_info['saturated_fat']}g)
+- Fiber: {nutrition_info['fiber']}g
+- Sodium: {nutrition_info['sodium']}mg
+
+User Profile:
+- Diet Preference: {request.user_diet_preference or 'Not specified'}
+- Goal: {request.user_goal or 'Not specified'}
+
+Ingredients: {ingredients_text[:200] if ingredients_text else 'Not available'}
+
+Task:
+1. Analyze if this product fits the user's diet preference and goal (2-3 sentences max)
+2. Suggest 3 healthier Indian alternatives (brands available in India)
+3. Focus on popular Indian brands like: Amul, Mother Dairy, Britannia, Parle, Nestle India, ITC, Haldiram's, MTR, etc.
+
+Format:
+COMPATIBILITY: [Your analysis with emoji ✅ or ❌]
+
+ALTERNATIVES:
+1. [Product name] - [Why it's better]
+2. [Product name] - [Why it's better]
+3. [Product name] - [Why it's better]
+"""
+
+        ai_response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": ai_prompt}],
+            temperature=0.7,
+            max_tokens=300
+        )
+
+        ai_analysis = ai_response.choices[0].message.content.strip()
+
+        # Parse AI response
+        compatibility = ""
+        alternatives = []
+
+        if "COMPATIBILITY:" in ai_analysis:
+            parts = ai_analysis.split("ALTERNATIVES:")
+            compatibility = parts[0].replace("COMPATIBILITY:", "").strip()
+
+            if len(parts) > 1:
+                alt_text = parts[1].strip()
+                alt_lines = [line.strip() for line in alt_text.split("\n") if line.strip() and line.strip()[0].isdigit()]
+                alternatives = [line[3:].strip() if line[2] == '.' else line[2:].strip() for line in alt_lines[:3]]
+
+        # 6. Return formatted response
+        return {
+            "success": True,
+            "product": {
+                "name": product_name,
+                "brand": brands,
+                "quantity": quantity,
+                "image_url": product.get("image_url", ""),
+                "barcode": barcode
+            },
+            "nutrition": nutrition_info,
+            "diet_info": {
+                "is_vegetarian": is_vegetarian,
+                "is_vegan": is_vegan,
+                "allergens": allergens if allergens else "None listed"
+            },
+            "ai_analysis": {
+                "compatibility": compatibility,
+                "alternatives": alternatives
+            },
+            "raw_ingredients": ingredients_text[:300] if ingredients_text else "Not available"
+        }
+
+    except requests.Timeout:
+        return {
+            "success": False,
+            "error": "Request timeout. Please try again."
+        }
+    except Exception as e:
+        logger.error(f"Barcode scan error: {e}")
+        return {
+            "success": False,
+            "error": f"Error scanning barcode: {str(e)}"
+        }
+
+# --- PRODUCT SEARCH ENDPOINT (for products without barcode) ---
+
+class ProductSearchRequest(BaseModel):
+    search_query: str
+    user_diet_preference: Optional[str] = None
+    user_goal: Optional[str] = None
+
+@app.post("/search-product")
+async def search_product(request: ProductSearchRequest):
+    """
+    Search for products by name in Open Food Facts database.
+    For products without barcodes or when barcode scan fails.
+    """
+    try:
+        search_query = request.search_query.strip()
+
+        # Search Open Food Facts by product name
+        search_url = "https://world.openfoodfacts.org/cgi/search.pl"
+        params = {
+            "search_terms": search_query,
+            "search_simple": 1,
+            "action": "process",
+            "json": 1,
+            "page_size": 10,
+            "fields": "product_name,brands,code,image_url,nutriments,quantity"
+        }
+
+        response = requests.get(search_url, params=params, timeout=10)
+        data = response.json()
+
+        if not data.get("products") or len(data["products"]) == 0:
+            return {
+                "success": False,
+                "error": "No products found. Try a different search term."
+            }
+
+        # Return list of matching products
+        results = []
+        for product in data["products"][:5]:  # Top 5 results
+            results.append({
+                "name": product.get("product_name", "Unknown"),
+                "brand": product.get("brands", "Unknown"),
+                "barcode": product.get("code", ""),
+                "image_url": product.get("image_url", ""),
+                "quantity": product.get("quantity", "N/A")
+            })
+
+        return {
+            "success": True,
+            "results": results
+        }
+
+    except requests.Timeout:
+        return {
+            "success": False,
+            "error": "Search timeout. Please try again."
+        }
+    except Exception as e:
+        logger.error(f"Product search error: {e}")
+        return {
+            "success": False,
+            "error": f"Error searching products: {str(e)}"
+        }
+
 # --- 7. RUN INSTRUCTION ---
 if __name__ == "__main__":
     import uvicorn
     # This block allows you to run `python main.py` directly for testing
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

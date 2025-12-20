@@ -93,29 +93,29 @@ export default function Landing() {
         <div className="mt-32 max-w-6xl mx-auto">
           <div className="text-center mb-12">
             <h2 className="text-4xl font-extrabold text-gray-900 mb-4">Why Choose Ghar-Ka-Khana?</h2>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">Join thousands of Indians eating healthier with AI-powered personalized nutrition</p>
+            <p className="text-xl text-gray-600 max-w-2xl mx-auto">AI-powered features that make healthy eating effortless</p>
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             <BenefitCard
-              icon={<Users size={28} />}
-              number="10,000+"
-              label="Happy Users"
+              icon={<Brain size={28} />}
+              label="Medical Intelligence"
+              desc="Upload blood reports for AI-powered deficiency detection"
             />
             <BenefitCard
-              icon={<Star size={28} />}
-              number="4.9/5"
-              label="User Rating"
+              icon={<ShoppingBag size={28} />}
+              label="Budget Optimizer"
+              desc="Smart grocery swaps to save money without compromising nutrition"
             />
             <BenefitCard
-              icon={<Clock size={28} />}
-              number="< 2 min"
-              label="Plan Generation"
+              icon={<Activity size={28} />}
+              label="Meal Swapper"
+              desc="Don't like a meal? Swap it instantly with macro-matched alternatives"
             />
             <BenefitCard
-              icon={<Shield size={28} />}
-              number="100%"
-              label="Privacy Safe"
+              icon={<CheckCircle size={28} />}
+              label="100% Free"
+              desc="No hidden costs, no subscriptions, always free"
             />
           </div>
         </div>
@@ -131,46 +131,17 @@ export default function Landing() {
             <StepCard
               step="1"
               title="Share Your Details"
-              desc="Tell us your age, weight, goals, and regional food preferences. Optionally upload blood reports."
+              desc="Tell us your age, weight, goals, and regional food preferences. Upload blood reports for medical intelligence."
             />
             <StepCard
               step="2"
               title="AI Generates Plan"
-              desc="Our AI nutritionist analyzes your data and creates a personalized 7-day meal plan in seconds."
+              desc="AI analyzes your profile and creates a 7-day meal plan with YouTube recipe videos for each meal."
             />
             <StepCard
               step="3"
-              title="Get Your Plan"
-              desc="Download your plan, get grocery lists, and start your healthy eating journey today!"
-            />
-          </div>
-        </div>
-
-        {/* --- TESTIMONIALS --- */}
-        <div className="mt-32 max-w-6xl mx-auto">
-          <div className="text-center mb-12">
-            <h2 className="text-4xl font-extrabold text-gray-900 mb-4">What Our Users Say</h2>
-            <p className="text-xl text-gray-600">Real stories from real people</p>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-6">
-            <TestimonialCard
-              name="Priya Sharma"
-              location="Mumbai"
-              quote="Lost 8 kgs in 2 months! The regional Indian meals made it so easy to stick to the plan."
-              rating={5}
-            />
-            <TestimonialCard
-              name="Rahul Verma"
-              location="Delhi"
-              quote="The blood report analysis feature is amazing. It detected my Vitamin D deficiency and adjusted my diet accordingly."
-              rating={5}
-            />
-            <TestimonialCard
-              name="Anjali Patel"
-              location="Ahmedabad"
-              quote="Love that it understands Gujarati cuisine! Finally, a diet plan that feels like home food."
-              rating={5}
+              title="Shop & Cook Smart"
+              desc="Get grocery lists with budget optimization and smart swaps. Swap any meal you don't like instantly!"
             />
           </div>
         </div>
@@ -214,14 +185,14 @@ function FeatureCard({ icon, title, desc, color }) {
 }
 
 // Benefit Card
-function BenefitCard({ icon, number, label }) {
+function BenefitCard({ icon, label, desc }) {
     return (
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-md hover:shadow-xl transition-all duration-300 text-center group">
-            <div className="text-green-600 flex justify-center mb-3 transform group-hover:scale-110 transition-transform">
+        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-md hover:shadow-xl transition-all duration-300 group">
+            <div className="text-green-600 flex justify-center mb-4 transform group-hover:scale-110 transition-transform">
                 {icon}
             </div>
-            <div className="text-3xl font-extrabold text-gray-900 mb-1">{number}</div>
-            <div className="text-sm text-gray-600 font-semibold">{label}</div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2 text-center">{label}</h3>
+            <p className="text-sm text-gray-600 text-center leading-relaxed">{desc}</p>
         </div>
     );
 }

@@ -4,8 +4,8 @@ import axios from 'axios';
 import { LogIn, ArrowRight, Phone, AlertCircle, ArrowLeft, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast'; // <--- Using Toasts for errors
 
-// Use your live backend URL (ensure /login is added in the request)
-const API_URL = "https://makhana-ai.onrender.com";
+// Use local or production backend based on environment
+const API_URL = import.meta.env.DEV ? 'http://localhost:8000' : 'https://makhana-ai.onrender.com';
 
 export default function Login() {
   const navigate = useNavigate();

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, UploadCloud, FileText, AlertCircle, ArrowLeft, Lock, Target } from 'lucide-react';
+import { Loader2, UploadCloud, FileText, AlertCircle, ArrowLeft, Lock, Target, Stethoscope } from 'lucide-react';
 import toast from 'react-hot-toast'; // <--- 1. IMPORT TOAST
 import { generateDiet, uploadReport } from '../components/api';
 
@@ -9,8 +9,15 @@ export default function UserForm() {
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   
-  // New state for the manual text entry
-  const [customCondition, setCustomCondition] = useState('');
+  // Medical conditions state
+  const [medicalConditions, setMedicalConditions] = useState({
+    diabetes: false,
+    thyroid: false,
+    pcod: false,
+    cholesterol: false,
+    hypertension: false,
+    other: ''
+  });
 
   const [formData, setFormData] = useState({
     name: '',
@@ -18,11 +25,12 @@ export default function UserForm() {
     gender: 'Male',
     height: '',
     weight: '',
-    goal: 'Weight Loss', 
+    goal: 'Weight Loss',
+    goal_pace: 'balanced', // New field: conservative, balanced, rapid
     cuisine: 'North Indian',
     type: 'Vegetarian',
     budget: 'Medium',
-    medical_manual: [] 
+    medical_manual: []
   });
 
   const handleFileUpload = async (e) => {
@@ -39,19 +47,32 @@ export default function UserForm() {
         const res = await uploadReport(uploadData);
         toast.dismiss(loadingToast); // Dismiss loading
 
+        // Check for validation errors
+        if (res.data.error === "not_medical") {
+            toast.error("⚠️ This doesn't look like a blood report. Please upload a valid medical lab report.");
+            setAnalyzing(false);
+            return;
+        }
+
+        if (res.data.error === "not_readable") {
+            toast.error("⚠️ Could not read the PDF. Please ensure it's a clear, text-based document.");
+            setAnalyzing(false);
+            return;
+        }
+
         if (res.data.issues && res.data.issues.length > 0) {
             setFormData(prev => ({
                 ...prev,
                 medical_manual: [...prev.medical_manual, ...res.data.issues]
             }));
-            toast.success(`Analysis Complete! Found: ${res.data.issues.length} issues`);
+            toast.success(`✅ Analysis Complete! Found: ${res.data.issues.length} issues`);
         } else {
-            toast.success("Report analyzed. No major issues found.");
+            toast.success("✅ Report analyzed. No major issues found.");
         }
     } catch (error) {
         console.error(error);
         toast.dismiss(loadingToast);
-        toast.error("Could not analyze report. Ensure it's a clear PDF.");
+        toast.error("❌ Could not analyze report. Please try again or check the file.");
     }
     setAnalyzing(false);
   };
@@ -70,20 +91,26 @@ export default function UserForm() {
     try {
       const guestId = `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      // LOGIC: If they typed a custom condition, add it to the AI's medical tags
+      // LOGIC: Combine selected medical conditions with blood report findings
       let finalMedicalTags = [...formData.medical_manual];
-      if (formData.goal === 'Manage Medical Condition' && customCondition) {
-          finalMedicalTags.push(`Condition: ${customCondition}`);
-      }
+
+      // Add checked conditions
+      if (medicalConditions.diabetes) finalMedicalTags.push('Diabetes/Pre-diabetes');
+      if (medicalConditions.thyroid) finalMedicalTags.push('Thyroid Issues');
+      if (medicalConditions.pcod) finalMedicalTags.push('PCOD/PCOS');
+      if (medicalConditions.cholesterol) finalMedicalTags.push('High Cholesterol');
+      if (medicalConditions.hypertension) finalMedicalTags.push('Hypertension');
+      if (medicalConditions.other) finalMedicalTags.push(medicalConditions.other);
 
       const profile = {
-        name: formData.name,             
-        phone: guestId,                  
+        name: formData.name,
+        phone: guestId,
         age: parseInt(formData.age),
         gender: formData.gender,
         height_cm: parseFloat(formData.height),
         weight_kg: parseFloat(formData.weight),
         goal: formData.goal,
+        goal_pace: formData.goal_pace, // New field
         diet_pref: formData.type,
         region: formData.cuisine,
         budget: formData.budget,
@@ -181,7 +208,7 @@ export default function UserForm() {
             <label className="text-sm font-bold text-gray-700 flex items-center">
                 <Target size={16} className="mr-1 text-green-600"/> What is your Goal?
             </label>
-            <select 
+            <select
                 className="w-full p-3 border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-green-500 outline-none"
                 value={formData.goal}
                 onChange={e => setFormData({...formData, goal: e.target.value})}
@@ -190,23 +217,77 @@ export default function UserForm() {
                 <option value="Muscle Gain">💪 Muscle Gain</option>
                 <option value="Weight Gain">🥪 Weight Gain</option>
                 <option value="Balanced Diet">🧘 Balanced Diet</option>
-                <option value="Manage Medical Condition">🩺 Manage Medical Condition</option>
             </select>
-
-            {/* --- CONDITIONAL INPUT: Only shows if "Medical Condition" is selected --- */}
-            {formData.goal === "Manage Medical Condition" && (
-                <div className="mt-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide">Please Specify Condition</label>
-                    <input 
-                        type="text" 
-                        placeholder="e.g. Thyroid, Hypertension, PCOD, High Cholesterol..."
-                        className="w-full p-3 mt-1 border border-blue-200 bg-blue-50 rounded-lg text-blue-900 focus:ring-2 focus:ring-blue-500 outline-none"
-                        value={customCondition}
-                        onChange={e => setCustomCondition(e.target.value)}
-                    />
-                </div>
-            )}
         </div>
+
+        {/* --- GOAL PACE SELECTION (Only show for Weight Loss/Muscle Gain/Weight Gain) --- */}
+        {['Weight Loss', 'Muscle Gain', 'Weight Gain'].includes(formData.goal) && (
+            <div className="space-y-3 bg-gradient-to-br from-green-50 to-emerald-50 p-5 rounded-xl border border-green-100">
+                <label className="text-sm font-bold text-gray-800 flex items-center">
+                    <Target size={16} className="mr-1 text-green-600"/> How fast do you want to achieve your goal?
+                </label>
+                <p className="text-xs text-gray-600 mb-2">
+                    This helps us calculate precise calorie and protein targets based on your preference.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {/* Conservative Option */}
+                    <button
+                        type="button"
+                        onClick={() => setFormData({...formData, goal_pace: 'conservative'})}
+                        className={`p-4 rounded-xl border-2 transition-all duration-300 text-left ${
+                            formData.goal_pace === 'conservative'
+                                ? 'border-green-500 bg-white shadow-lg scale-105'
+                                : 'border-gray-200 bg-white hover:border-green-300 hover:shadow-md'
+                        }`}
+                    >
+                        <div className="font-bold text-gray-800 mb-1">🐢 Conservative</div>
+                        <div className="text-xs text-gray-600">Slow & sustainable</div>
+                        <div className="text-xs text-green-600 mt-2 font-semibold">
+                            {formData.goal === 'Weight Loss' ? '~0.25-0.5 kg/week' : 'Gradual gains'}
+                        </div>
+                    </button>
+
+                    {/* Balanced Option */}
+                    <button
+                        type="button"
+                        onClick={() => setFormData({...formData, goal_pace: 'balanced'})}
+                        className={`p-4 rounded-xl border-2 transition-all duration-300 text-left ${
+                            formData.goal_pace === 'balanced'
+                                ? 'border-green-500 bg-white shadow-lg scale-105'
+                                : 'border-gray-200 bg-white hover:border-green-300 hover:shadow-md'
+                        }`}
+                    >
+                        <div className="font-bold text-gray-800 mb-1 flex items-center">
+                            ⚡ Balanced
+                            <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Recommended</span>
+                        </div>
+                        <div className="text-xs text-gray-600">Optimal pace</div>
+                        <div className="text-xs text-green-600 mt-2 font-semibold">
+                            {formData.goal === 'Weight Loss' ? '~0.5-0.75 kg/week' : 'Steady progress'}
+                        </div>
+                    </button>
+
+                    {/* Rapid Option */}
+                    <button
+                        type="button"
+                        onClick={() => setFormData({...formData, goal_pace: 'rapid'})}
+                        className={`p-4 rounded-xl border-2 transition-all duration-300 text-left ${
+                            formData.goal_pace === 'rapid'
+                                ? 'border-green-500 bg-white shadow-lg scale-105'
+                                : 'border-gray-200 bg-white hover:border-green-300 hover:shadow-md'
+                        }`}
+                    >
+                        <div className="font-bold text-gray-800 mb-1">🚀 Rapid</div>
+                        <div className="text-xs text-gray-600">Short-term aggressive</div>
+                        <div className="text-xs text-orange-600 mt-2 font-semibold">
+                            {formData.goal === 'Weight Loss' ? '~0.75-1 kg/week' : 'Fast results'}
+                        </div>
+                    </button>
+                </div>
+            </div>
+        )}
+
 
         {/* Section 3: Preferences */}
         <div className="grid grid-cols-2 gap-4">
@@ -232,20 +313,105 @@ export default function UserForm() {
             </div>
         </div>
 
-        {/* Section 4: AI Medical Analysis */}
+        {/* Section 4: Medical & Health Conditions (NEW - Always Visible) */}
+        <div className="bg-purple-50 p-6 rounded-xl border border-purple-200">
+            <h3 className="font-bold text-purple-900 flex items-center mb-3">
+                <Stethoscope size={18} className="mr-2"/> Medical & Health Conditions (Optional)
+            </h3>
+            <p className="text-sm text-purple-700 mb-4">
+                Select any conditions you have. We'll adjust your diet accordingly.
+            </p>
+
+            {/* Quick Select Common Conditions */}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                <label className="flex items-center space-x-2 bg-white p-3 rounded-lg border border-purple-100 cursor-pointer hover:bg-purple-50 transition">
+                    <input
+                        type="checkbox"
+                        checked={medicalConditions.diabetes}
+                        onChange={e => setMedicalConditions({...medicalConditions, diabetes: e.target.checked})}
+                        className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Diabetes / Pre-diabetes</span>
+                </label>
+
+                <label className="flex items-center space-x-2 bg-white p-3 rounded-lg border border-purple-100 cursor-pointer hover:bg-purple-50 transition">
+                    <input
+                        type="checkbox"
+                        checked={medicalConditions.thyroid}
+                        onChange={e => setMedicalConditions({...medicalConditions, thyroid: e.target.checked})}
+                        className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Thyroid Issues</span>
+                </label>
+
+                <label className="flex items-center space-x-2 bg-white p-3 rounded-lg border border-purple-100 cursor-pointer hover:bg-purple-50 transition">
+                    <input
+                        type="checkbox"
+                        checked={medicalConditions.pcod}
+                        onChange={e => setMedicalConditions({...medicalConditions, pcod: e.target.checked})}
+                        className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">PCOD / PCOS</span>
+                </label>
+
+                <label className="flex items-center space-x-2 bg-white p-3 rounded-lg border border-purple-100 cursor-pointer hover:bg-purple-50 transition">
+                    <input
+                        type="checkbox"
+                        checked={medicalConditions.cholesterol}
+                        onChange={e => setMedicalConditions({...medicalConditions, cholesterol: e.target.checked})}
+                        className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">High Cholesterol</span>
+                </label>
+
+                <label className="flex items-center space-x-2 bg-white p-3 rounded-lg border border-purple-100 cursor-pointer hover:bg-purple-50 transition">
+                    <input
+                        type="checkbox"
+                        checked={medicalConditions.hypertension}
+                        onChange={e => setMedicalConditions({...medicalConditions, hypertension: e.target.checked})}
+                        className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Hypertension</span>
+                </label>
+            </div>
+
+            {/* Other Condition Text Input */}
+            <div className="mb-4">
+                <label className="text-xs font-bold text-purple-700 uppercase tracking-wide mb-2 block">
+                    Other Conditions
+                </label>
+                <input
+                    type="text"
+                    placeholder="e.g., Kidney issues, Fatty liver, Anemia..."
+                    className="w-full p-3 border border-purple-200 bg-white rounded-lg text-gray-900 focus:ring-2 focus:ring-purple-500 outline-none"
+                    value={medicalConditions.other}
+                    onChange={e => setMedicalConditions({...medicalConditions, other: e.target.value})}
+                />
+            </div>
+        </div>
+
+        {/* Section 5: Blood Report Upload */}
         <div className="bg-blue-50 p-6 rounded-xl border border-blue-100">
             <div className="flex justify-between items-start mb-2">
                 <h3 className="font-bold text-blue-900 flex items-center">
-                    <FileText size={18} className="mr-2"/> Medical Intelligence (Optional)
+                    <FileText size={18} className="mr-2"/> Upload Blood Report (Optional)
                 </h3>
                 <div className="flex items-center text-xs text-blue-600 bg-white px-2 py-1 rounded-full border border-blue-100 shadow-sm">
                     <Lock size={12} className="mr-1"/> 100% Private & Encrypted
                 </div>
             </div>
-            
-            <p className="text-sm text-blue-700 mb-4">
-                Upload a blood report PDF. Our AI will extract deficiencies and adjust your diet.
+
+            <p className="text-sm text-blue-700 mb-3">
+                Upload your blood test report for AI-powered deficiency detection and diet optimization.
             </p>
+
+            {/* Visual Guide for Valid Reports */}
+            <div className="bg-blue-100 p-3 rounded-lg mb-4 text-xs">
+                <div className="font-semibold text-blue-900 mb-1">✅ Accepted Reports:</div>
+                <div className="text-blue-700 mb-2">Blood test reports from labs (Thyrocare, Dr. Lal PathLabs, SRL, etc.)</div>
+                <div className="font-semibold text-blue-900 mb-1">❌ Not Accepted:</div>
+                <div className="text-blue-700">Prescriptions, X-rays, invoices, or general documents</div>
+            </div>
             
             <div className="flex items-center gap-4">
                 <label className="cursor-pointer bg-white text-blue-600 px-4 py-2 rounded-lg border border-blue-200 font-bold shadow-sm hover:bg-blue-50 transition flex items-center">

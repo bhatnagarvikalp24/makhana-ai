@@ -51,14 +51,6 @@ export default function Footer() {
                   onClick={() => navigate('/login')}
                   className="text-gray-600 hover:text-green-600 transition-colors duration-300 text-sm"
                 >
-                  Login
-                </button>
-              </li>
-              <li>
-                <button
-                  onClick={() => navigate('/my-plans')}
-                  className="text-gray-600 hover:text-green-600 transition-colors duration-300 text-sm"
-                >
                   My Plans
                 </button>
               </li>

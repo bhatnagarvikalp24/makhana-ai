@@ -1,65 +1,174 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ChevronRight, Calendar, Utensils } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Calendar, Utensils, User, Sparkles, TrendingUp } from 'lucide-react';
 
 export default function PlanList() {
   const { state } = useLocation();
   const navigate = useNavigate();
 
   if (!state?.plans || state.plans.length === 0) {
-    return <div className="p-10 text-center">No plans found.</div>;
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-green-50 to-white">
+        <div className="max-w-2xl mx-auto px-4 py-16 text-center">
+          <div className="bg-white rounded-2xl shadow-lg p-12 border border-gray-100">
+            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Utensils className="text-green-600" size={40} />
+            </div>
+            <h2 className="text-2xl font-bold text-gray-800 mb-4">No Plans Yet</h2>
+            <p className="text-gray-600 mb-8">Start your health journey by creating your first personalized diet plan!</p>
+            <button
+              onClick={() => navigate('/start')}
+              className="bg-gradient-to-r from-green-600 to-green-500 text-white px-8 py-4 rounded-xl font-bold hover:shadow-lg transition-all duration-300"
+            >
+              Create Your First Plan
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const openPlan = (plan) => {
-    navigate('/plan', { 
-        state: { 
-            plan: plan.diet, 
+    navigate('/plan', {
+        state: {
+            plan: plan.diet,
             planId: plan.id,
-            userId: state.user.id 
-        } 
+            userId: state.user.id
+        }
     });
   };
 
-  return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
-      <div className="flex items-center mb-8">
-        <button onClick={() => navigate('/')} className="mr-4 text-gray-400 hover:text-green-600">
-            <ArrowLeft />
-        </button>
-        <h1 className="text-2xl font-bold text-gray-800">My Diet Plans</h1>
-      </div>
+  // Extract goal from first plan if available
+  const getGoalIcon = (planData) => {
+    try {
+      const goal = planData?.summary?.toLowerCase() || '';
+      if (goal.includes('weight loss') || goal.includes('lose weight')) return '🔥';
+      if (goal.includes('muscle') || goal.includes('gain')) return '💪';
+      if (goal.includes('balanced') || goal.includes('maintenance')) return '⚖️';
+      return '🎯';
+    } catch {
+      return '🎯';
+    }
+  };
 
-      <div className="space-y-4">
-        {state.plans.map((plan) => (
-          <div 
-            key={plan.id} 
-            onClick={() => openPlan(plan)}
-            className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:border-green-200 cursor-pointer transition flex justify-between items-center group"
-          >
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-green-50 to-white">
+      <div className="max-w-4xl mx-auto px-4 py-8">
+
+        {/* Header Section */}
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center">
+            <button onClick={() => navigate('/')} className="mr-4 text-gray-400 hover:text-green-600 transition">
+                <ArrowLeft />
+            </button>
             <div>
-                <h3 className="font-bold text-lg text-gray-800 group-hover:text-green-700 transition">
-                    {plan.title || "Untitled Plan"}
-                </h3>
-                <div className="flex items-center text-sm text-gray-500 mt-1">
-                    <Calendar size={14} className="mr-1"/> 
-                    {new Date(plan.created_at).toLocaleDateString()}
-                    <span className="mx-2">•</span>
-                    <Utensils size={14} className="mr-1"/> 
-                    7 Day Plan
-                </div>
-            </div>
-            <div className="text-gray-300 group-hover:text-green-500 transition">
-                <ChevronRight size={24} />
+              <h1 className="text-3xl font-bold text-gray-800">My Diet Plans</h1>
+              <p className="text-gray-600 text-sm mt-1">Welcome back, {state.user?.name || 'User'}!</p>
             </div>
           </div>
-        ))}
+          <div className="hidden md:flex items-center gap-2 bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-100">
+            <User className="text-green-600" size={20} />
+            <span className="text-sm font-medium text-gray-700">{state.user?.phone?.replace(/(\d{4})(\d{6})/, '$1-***-***')}</span>
+          </div>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <div className="bg-gradient-to-br from-green-500 to-green-600 text-white p-6 rounded-2xl shadow-lg">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-green-100 text-sm font-medium">Total Plans</span>
+              <Sparkles size={20} />
+            </div>
+            <div className="text-4xl font-bold">{state.plans.length}</div>
+          </div>
+
+          <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-6 rounded-2xl shadow-lg">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-blue-100 text-sm font-medium">Latest Plan</span>
+              <Calendar size={20} />
+            </div>
+            <div className="text-lg font-bold">{new Date(state.plans[0]?.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+          </div>
+
+          <div className="bg-gradient-to-br from-purple-500 to-purple-600 text-white p-6 rounded-2xl shadow-lg">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-purple-100 text-sm font-medium">Active Goal</span>
+              <TrendingUp size={20} />
+            </div>
+            <div className="text-lg font-bold flex items-center gap-2">
+              <span>{getGoalIcon(state.plans[0]?.diet)}</span>
+              <span>In Progress</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Plans List */}
+        <div className="space-y-4 mb-8">
+          {state.plans.map((plan, index) => (
+            <div
+              key={plan.id}
+              onClick={() => openPlan(plan)}
+              className="bg-white p-6 rounded-2xl border-2 border-gray-100 shadow-md hover:shadow-xl hover:border-green-300 cursor-pointer transition-all duration-300 group"
+            >
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-3xl">{getGoalIcon(plan.diet)}</span>
+                    <div>
+                      <h3 className="font-bold text-xl text-gray-800 group-hover:text-green-700 transition">
+                          {plan.title || "Untitled Plan"}
+                      </h3>
+                      {index === 0 && (
+                        <span className="inline-block bg-green-100 text-green-700 text-xs font-bold px-2 py-1 rounded-full mt-1">
+                          Latest
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+                    <div className="flex items-center gap-1">
+                      <Calendar size={16} className="text-gray-400"/>
+                      <span>Created {new Date(plan.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Utensils size={16} className="text-gray-400"/>
+                      <span>7-Day Meal Plan</span>
+                    </div>
+                  </div>
+
+                  {plan.diet?.daily_targets && (
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <div className="bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                        <span className="text-xs text-blue-600 font-medium">
+                          {plan.diet.daily_targets.calories}
+                        </span>
+                      </div>
+                      <div className="bg-purple-50 px-3 py-1.5 rounded-lg border border-purple-100">
+                        <span className="text-xs text-purple-600 font-medium">
+                          {plan.diet.daily_targets.protein}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-gray-300 group-hover:text-green-500 group-hover:translate-x-1 transition-all duration-300">
+                    <ChevronRight size={28} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Create New Plan Button */}
+        <button
+          onClick={() => navigate('/start')}
+          className="w-full py-5 bg-gradient-to-r from-green-600 to-green-500 text-white rounded-2xl font-bold text-lg hover:shadow-xl transition-all duration-300 flex items-center justify-center gap-2"
+        >
+          <Sparkles size={20} />
+          Create New Plan
+        </button>
       </div>
-      
-      <button 
-        onClick={() => navigate('/start')}
-        className="mt-8 w-full py-4 border-2 border-dashed border-green-200 text-green-700 rounded-xl font-bold hover:bg-green-50 transition"
-      >
-        + Create New Plan
-      </button>
     </div>
   );
 }
