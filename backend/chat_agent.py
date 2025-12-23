@@ -33,7 +33,9 @@ class DietChatAgent:
             model="claude-3-haiku-20240307",
             anthropic_api_key=self.api_key,
             temperature=0.7,
-            max_tokens=2000
+            max_tokens=2000,
+            timeout=30.0,  # 30 second timeout for API requests
+            max_retries=2  # Retry failed requests up to 2 times
         )
 
         # Store conversation histories per session
@@ -104,19 +106,32 @@ Stay focused on diet, nutrition, and wellness topics."""
                 return ai_message
 
             except Exception as e:
-                error_str = str(e)
+                error_str = str(e).lower()
 
-                # Check if it's a temporary overload error (529)
-                if "overloaded" in error_str.lower() or "529" in error_str:
-                    if attempt < max_retries - 1:
-                        # Wait and retry
-                        import time
-                        time.sleep(retry_delay)
-                        continue
-                    else:
+                # Check if it's a retryable error
+                retryable_errors = [
+                    "overloaded", "529",  # API overload
+                    "connection", "timeout",  # Connection issues
+                    "rate limit", "429"  # Rate limiting
+                ]
+
+                is_retryable = any(err in error_str for err in retryable_errors)
+
+                if is_retryable and attempt < max_retries - 1:
+                    # Wait and retry
+                    import time
+                    time.sleep(retry_delay)
+                    continue
+                elif is_retryable:
+                    # Max retries reached for retryable error
+                    if "overloaded" in error_str or "529" in error_str:
                         error_msg = "I'm experiencing high demand right now. Please try again in a moment! 🙏"
+                    elif "timeout" in error_str or "connection" in error_str:
+                        error_msg = "Connection timeout. The AI service is responding slowly. Please try again! ⏱️"
+                    else:
+                        error_msg = "The AI service is temporarily unavailable. Please try again shortly! 🔄"
                 else:
-                    # Other errors - don't retry
+                    # Non-retryable error
                     error_msg = f"Sorry, I encountered an error: {str(e)}"
                     break
 
