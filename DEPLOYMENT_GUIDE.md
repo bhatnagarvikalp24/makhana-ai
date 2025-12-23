@@ -108,7 +108,24 @@ netlify deploy --prod
 - ✅ Backend changes need immediate testing
 - ✅ No build minute limits on Render
 
-**Workflow:**
+### Required Environment Variables on Render
+
+**CRITICAL:** Add these to your Render service environment variables:
+
+1. Go to Render Dashboard → Your Web Service → Environment
+2. Add the following variables:
+
+```
+OPENAI_API_KEY=sk-proj-your_key_here
+ANTHROPIC_API_KEY=sk-ant-api03-your_key_here
+YOUTUBE_API_KEY=your_youtube_key_here
+DATABASE_URL=(auto-added if using Render PostgreSQL)
+```
+
+**Note:** After adding environment variables, you must **manually redeploy** for changes to take effect.
+
+### Deployment Workflow
+
 ```bash
 # Edit backend files
 git add backend/
@@ -117,6 +134,58 @@ git push origin main
 ```
 
 Render will auto-deploy in ~3-5 minutes.
+
+### Common Deployment Issues
+
+#### Issue 1: ModuleNotFoundError
+**Error:** `ModuleNotFoundError: No module named 'langchain_anthropic'`
+
+**Solution:**
+- Ensure `backend/requirements.txt` includes:
+  ```
+  langchain
+  langchain-anthropic
+  langchain-community
+  ```
+- Push changes and wait for Render to rebuild
+
+#### Issue 2: Missing API Keys
+**Error:** `ANTHROPIC_API_KEY environment variable not set`
+
+**Solution:**
+- Add `ANTHROPIC_API_KEY` to Render environment variables
+- Click "Manual Deploy" → "Deploy latest commit"
+
+#### Issue 3: Database Connection Failed
+**Error:** `Could not connect to database`
+
+**Solution:**
+- Verify `DATABASE_URL` is set (auto-added by Render PostgreSQL)
+- Check database is running
+- Ensure URL format is `postgresql://...` (not `postgres://`)
+
+### Health Check
+
+After deployment, verify backend is working:
+
+**URL:** `https://makhana-ai.onrender.com/health`
+
+Expected response:
+```json
+{
+  "status": "healthy",
+  "timestamp": "2025-12-23T10:00:00Z"
+}
+```
+
+**Test chat endpoint:** `POST https://makhana-ai.onrender.com/chat`
+```json
+{
+  "session_id": "test123",
+  "message": "Hello",
+  "context": {}
+}
+```
 
 ---
 
