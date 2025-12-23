@@ -33,9 +33,9 @@ class DietChatAgent:
             model="claude-3-haiku-20240307",
             anthropic_api_key=self.api_key,
             temperature=0.7,
-            max_tokens=2000,
-            timeout=30.0,  # 30 second timeout for API requests
-            max_retries=2  # Retry failed requests up to 2 times
+            max_tokens=800,  # Reduced tokens for faster responses
+            timeout=90.0,  # 90 second timeout for API requests
+            max_retries=4  # Retry failed requests up to 4 times
         )
 
         # Store conversation histories per session
@@ -92,8 +92,8 @@ Stay focused on diet, nutrition, and wellness topics."""
         messages = history.messages
 
         # Get AI response with retry logic for temporary API errors
-        max_retries = 3
-        retry_delay = 2  # seconds
+        max_retries = 2  # Reduced since ChatAnthropic already has max_retries=4
+        retry_delay = 1  # Faster retry (1 second instead of 2)
 
         for attempt in range(max_retries):
             try:
