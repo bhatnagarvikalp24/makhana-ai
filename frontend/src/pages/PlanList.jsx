@@ -1,9 +1,37 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ChevronRight, Calendar, Utensils, User, Sparkles, TrendingUp } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Calendar, Utensils, User, Sparkles, TrendingUp, Activity } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+
+const API_URL = import.meta.env.DEV ? 'http://localhost:8000' : 'https://makhana-ai.onrender.com';
 
 export default function PlanList() {
   const { state } = useLocation();
   const navigate = useNavigate();
+  const [checkInCounts, setCheckInCounts] = useState({});
+
+  // Fetch check-in count for each plan
+  useEffect(() => {
+    const fetchCheckInCounts = async () => {
+      if (!state?.plans) return;
+
+      const counts = {};
+      for (const plan of state.plans) {
+        try {
+          const response = await axios.get(`${API_URL}/progress-history/${plan.id}`);
+          if (response.data.success) {
+            counts[plan.id] = response.data.checkins?.length || 0;
+          }
+        } catch (error) {
+          console.error(`Failed to fetch check-ins for plan ${plan.id}:`, error);
+          counts[plan.id] = 0;
+        }
+      }
+      setCheckInCounts(counts);
+    };
+
+    fetchCheckInCounts();
+  }, [state?.plans]);
 
   if (!state?.plans || state.plans.length === 0) {
     return (
@@ -148,7 +176,29 @@ export default function PlanList() {
                           {plan.diet.daily_targets.protein}
                         </span>
                       </div>
+                      {checkInCounts[plan.id] > 0 && (
+                        <div className="bg-green-50 px-3 py-1.5 rounded-lg border border-green-100 flex items-center gap-1.5">
+                          <Activity size={14} className="text-green-600" />
+                          <span className="text-xs text-green-600 font-medium">
+                            {checkInCounts[plan.id]} Check-in{checkInCounts[plan.id] > 1 ? 's' : ''}
+                          </span>
+                        </div>
+                      )}
                     </div>
+                  )}
+
+                  {/* View Progress Button - Only show if check-ins exist */}
+                  {checkInCounts[plan.id] > 0 && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent card click
+                        navigate('/progress', { state: { planId: plan.id, planTitle: plan.title } });
+                      }}
+                      className="mt-4 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg text-xs font-medium hover:shadow-lg transition-all flex items-center gap-1.5"
+                    >
+                      <Activity size={14} />
+                      View Progress History
+                    </button>
                   )}
                 </div>
 

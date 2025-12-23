@@ -10,7 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 # Data Validation & Models
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+# Chat Agent
+from chat_agent import get_chat_agent
 
 # Database
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, Float, Boolean, text
@@ -145,9 +148,9 @@ Base = declarative_base()
 # In backend/main.py, add this class near the top
 
 class GeneratePlanRequest(BaseModel):
-    age: int
-    weight: float       # in kg
-    height: float       # in cm
+    age: int = Field(..., ge=5, le=120, description="Age must be between 5 and 120 years")
+    weight: float = Field(..., ge=20.0, le=300.0, description="Weight must be between 20 and 300 kg")
+    height: float = Field(..., ge=50.0, le=250.0, description="Height must be between 50 and 250 cm")
     gender: str         # "male" or "female"
     goal: str           # "weight_loss", "muscle_gain", "maintenance"
     activity_level: str # "sedentary", "active", "moderate"
@@ -164,6 +167,16 @@ class SavePlanRequest(BaseModel):
     user_id: int
     phone: str
     title: str
+
+class ChatRequest(BaseModel):
+    session_id: str  # user_id or plan_id for conversation tracking
+    message: str
+    context: Optional[dict] = None  # Optional user context (diet plan, goals, etc.)
+
+class ChatResponse(BaseModel):
+    success: bool
+    response: str
+    suggestions: Optional[List[str]] = None
 
 class User(Base):
     __tablename__ = "users"
@@ -200,19 +213,114 @@ class Order(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     diet_plan_id = Column(Integer, ForeignKey("diet_plans.id"))
-    
+
     amount = Column(Float)            # e.g., 999.00
     currency = Column(String, default="INR")
     status = Column(String, default="pending") # pending, paid, shipped
-    
+
     razorpay_order_id = Column(String, nullable=True)
     razorpay_payment_id = Column(String, nullable=True)
-    
+
     shipping_address = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     user = relationship("User", back_populates="orders")
     diet_plan = relationship("DietPlan", back_populates="orders")
+
+# --- AGENTIC AI MODELS ---
+
+class WeeklyCheckIn(Base):
+    """Stores weekly user progress for tracking and adaptive recommendations"""
+    __tablename__ = "weekly_checkins"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    diet_plan_id = Column(Integer, ForeignKey("diet_plans.id"), nullable=False)
+
+    # Week tracking
+    week_number = Column(Integer, nullable=False)  # Week 1, 2, 3, etc.
+    checkin_date = Column(DateTime, default=datetime.utcnow)
+
+    # Progress metrics
+    current_weight_kg = Column(Float, nullable=False)
+    weight_change_kg = Column(Float, nullable=True)  # From previous week
+
+    # Adherence tracking (0-100%)
+    diet_adherence_percent = Column(Integer, default=70)  # How well they followed the plan
+    exercise_adherence_percent = Column(Integer, default=50)  # Exercise consistency
+
+    # User feedback
+    energy_level = Column(String, nullable=True)  # low, moderate, high
+    hunger_level = Column(String, nullable=True)  # low, moderate, high
+    challenges = Column(Text, nullable=True)  # Free text: what was difficult
+    notes = Column(Text, nullable=True)  # Additional user notes
+
+    # AI-generated insights (stored after analysis)
+    ai_insights_json = Column(Text, nullable=True)  # JSON: {plateau, recommendations, adjustments}
+
+    # Calorie adjustments (for adaptive agent)
+    adjusted_calories = Column(Integer, nullable=True)  # New calorie target if adjusted
+    adjustment_reason = Column(String, nullable=True)  # plateau, too_fast, too_slow
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class ProgressSnapshot(Base):
+    """Daily/weekly aggregated metrics for trend analysis"""
+    __tablename__ = "progress_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    diet_plan_id = Column(Integer, ForeignKey("diet_plans.id"), nullable=False)
+
+    snapshot_date = Column(DateTime, default=datetime.utcnow)
+
+    # Weight tracking
+    weight_kg = Column(Float, nullable=False)
+    weight_trend = Column(String, nullable=True)  # losing, gaining, stable
+
+    # Calculated metrics
+    total_weight_change_kg = Column(Float, nullable=True)  # Since plan start
+    avg_weekly_change_kg = Column(Float, nullable=True)  # Average per week
+    weeks_on_plan = Column(Integer, default=1)
+
+    # Expected vs actual (for adaptive agent)
+    expected_weight_kg = Column(Float, nullable=True)  # Based on original plan
+    variance_kg = Column(Float, nullable=True)  # actual - expected
+
+    # Flags for agent triggers
+    is_plateau = Column(Boolean, default=False)  # No change for 2+ weeks
+    is_off_track = Column(Boolean, default=False)  # >15% variance from expected
+    needs_adjustment = Column(Boolean, default=False)  # Agent should intervene
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class CalorieAdjustmentLog(Base):
+    """Tracks all calorie adjustments made by the adaptive agent"""
+    __tablename__ = "calorie_adjustments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    diet_plan_id = Column(Integer, ForeignKey("diet_plans.id"), nullable=False)
+
+    adjustment_date = Column(DateTime, default=datetime.utcnow)
+
+    # Adjustment details
+    previous_calories = Column(Integer, nullable=False)
+    new_calories = Column(Integer, nullable=False)
+    adjustment_amount = Column(Integer, nullable=False)  # +/- kcal
+
+    # Reason and context
+    reason = Column(String, nullable=False)  # plateau, slow_progress, too_fast, user_request
+    trigger_metric = Column(String, nullable=True)  # weight_change, adherence, energy_level
+
+    # AI explanation
+    ai_explanation = Column(Text, nullable=True)  # Human-readable reason
+
+    # Effectiveness tracking (filled after 1-2 weeks)
+    was_effective = Column(Boolean, nullable=True)  # Did it work?
+    effectiveness_notes = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 # Create Tables
 Base.metadata.create_all(bind=engine)
@@ -536,92 +644,180 @@ Activity multipliers (reference):
 
 **DEFAULT ASSUMPTION (be conservative):**
 - **Age < 60:** Use BMR × 1.3-1.4 (light activity) - DO NOT assume moderate!
-- **Age 60+:** Use BMR × 1.2 (sedentary for safety)
+- **Age 60-64:** Use BMR × 1.25-1.35 (reduced activity assumption)
+- **Age 65+:** Use BMR × 1.2-1.25 (sedentary for safety)
 
 **IMPORTANT FOR EXPLANATIONS:**
 - DO NOT state a precise TDEE number (e.g., "your TDEE is 2100 kcal")
 - Instead use: "estimated maintenance calories" or "maintenance range of X-Y kcal"
 - This accounts for individual variation in daily movement
 
-#### STEP 3: Adjust Calories Based on Goal AND Goal Pace
+#### STEP 3: Adjust Calories Based on Goal, Goal Pace, AND AGE
 Goal: {profile.goal}
 Goal Pace: {profile.goal_pace}
+Age: {profile.age}
 
-**CRITICAL: Use the goal_pace to determine calorie deficit/surplus!**
+**CRITICAL AGE-BASED SAFETY GUARDRAILS:**
 
-**For Weight Loss:**
+**For users AGE 65+ (MANDATORY RULES):**
+- DISABLE "rapid" pace for weight loss - force conservative approach
+- Minimum calories = BMR × 1.15 (NEVER at or below BMR)
+- Maximum deficit = 10-15% (gentle, stress-aware)
+- Prioritize muscle preservation, energy, and recovery over speed
+- Explanation MUST emphasize safety: "At this age, maintaining strength and energy is prioritized over rapid fat loss"
+
+**For users AGE 60-64:**
+- Allow conservative and balanced paces only
+- Minimum calories = BMR × 1.10
+- Maximum deficit = 15-20%
+- Gentle messaging about sustainable progress
+
+**For users AGE < 60:**
+- All paces available
+- Minimum calories = 1200 kcal (women) or 1500 kcal (men)
+- Follow standard deficit/surplus rules below
+
+---
+
+**DEFICIT/SURPLUS RULES BY AGE GROUP:**
+
+**For Weight Loss (Age < 60):**
 - **Conservative:** ~15-20% deficit from estimated maintenance = ~0.25-0.5kg/week loss
 - **Balanced:** ~20-25% deficit from estimated maintenance = ~0.5-0.75kg/week loss
-- **Rapid:** ~25-30% deficit from estimated maintenance = ~0.75-1kg/week loss
-- **Safety Floor:** Never go below 1200 kcal for women, 1500 kcal for men
+- **Rapid:** ~30-35% deficit from estimated maintenance = ~0.75-1kg/week loss (max)
 
-**For Muscle Gain:**
+**For Weight Loss (Age 60-64):**
+- **Conservative:** ~10-15% deficit = ~0.25-0.4kg/week loss
+- **Balanced:** ~15-20% deficit = ~0.4-0.6kg/week loss
+- **Rapid:** NOT ALLOWED - default to balanced
+
+**For Weight Loss (Age 65+):**
+- **Conservative ONLY:** ~10-15% deficit = ~0.2-0.4kg/week loss
+- **Balanced/Rapid:** NOT ALLOWED - default to conservative
+- Minimum = BMR × 1.15 (non-negotiable safety floor)
+
+**For Muscle Gain (All Ages):**
 - **Conservative:** +250-300 kcal surplus (lean gains)
 - **Balanced:** +300-400 kcal surplus (steady progress)
-- **Rapid:** +400-500 kcal surplus (faster but more fat)
+- **Rapid:** +400-500 kcal surplus (age < 60 only)
 
-**For Weight Gain:**
+**For Weight Gain (All Ages):**
 - **Conservative:** +300-400 kcal
 - **Balanced:** +400-500 kcal
-- **Rapid:** +500-600 kcal
+- **Rapid:** +500-600 kcal (age < 60 only)
 
-**For Balanced Diet / Maintenance:**
+**For Balanced Diet / Maintenance (All Ages):**
 - Calories = estimated maintenance (ignore goal_pace)
 
-**For Medical Conditions:**
-- Calories = estimated maintenance - 200-300 kcal (mild deficit, ignore goal_pace)
+**For Medical Conditions (All Ages):**
+- Calories = estimated maintenance - 10-15% (mild deficit, conservative)
+- Never below BMR × 1.10
 
 **CALCULATION VALIDATION (CRITICAL - MUST FOLLOW):**
 1. Calculate BMR using Mifflin-St Jeor
-2. Estimate TDEE range = BMR × 1.3 to BMR × 1.4 (or 1.2 for 60+)
-3. Take the MIDPOINT of TDEE range for calculations
-4. Apply deficit/surplus based on goal_pace
-5. Round to nearest 50 kcal
-6. Create a 50-80 kcal range around the target
+2. Apply AGE-BASED safety check FIRST
+3. Estimate TDEE range based on age multiplier
+4. Take the MIDPOINT of TDEE range for calculations
+5. Apply deficit/surplus based on goal_pace AND age restrictions
+6. Ensure final calories ≥ BMR × (1.15 for 65+, 1.10 for 60-64, or standard floor)
+7. Round to nearest 50 kcal
+8. Create a 50-80 kcal range around the target
 
 **Example (29M, 83kg, 177cm, Weight Loss, Balanced):**
-BMR = 1836 kcal → TDEE range = 2387-2570 kcal → Midpoint 2479 → Balanced deficit (22.5%) = 1922 → Final: **1900-1950 kcal**
-**Explanation style:** "Estimated maintenance around 2400-2550 kcal. Balanced deficit targets 0.5-0.75kg/week loss." OR avoid TDEE: "Calibrated deficit for steady fat loss of 0.5-0.75kg/week."
+BMR = 1836 kcal → Age < 60 → TDEE range = 2387-2570 kcal → Midpoint 2479 → Balanced deficit (22.5%) = 1922 → Final: **1900-1950 kcal**
 
-#### STEP 4: Calculate Protein Based on Goal, Goal Pace, and Body Weight
-**CRITICAL: Use SUSTAINABLE, ACHIEVABLE protein ranges - NOT athlete-level defaults!**
+**Example (68F, 60kg, 160cm, Weight Loss, Balanced):**
+BMR = 1139 kcal → Age 65+ → FORCED conservative → TDEE range = 1367-1424 kcal → Midpoint 1396 → Conservative deficit (12.5%) = 1221 → Safety floor check: BMR × 1.15 = 1310 → Final: **1300-1350 kcal**
+**Explanation:** "At your age, we've set a gentle calorie level that prioritizes maintaining strength and energy while supporting gradual fat loss. This conservative approach helps with recovery and adherence."
+
+#### STEP 4: Calculate Protein Based on Age, Goal, Goal Pace, and Body Weight
+**CRITICAL: Use AGE-APPROPRIATE, EVIDENCE-BASED protein ranges!**
 
 User Stats: {profile.weight_kg}kg, {profile.age}y, Goal: {profile.goal}, Pace: {profile.goal_pace}
 
-**REFINED PROTEIN GUIDELINES (more realistic for general population):**
+**AGE-BASED PROTEIN GUIDELINES (evidence-based, medically sound):**
 
-**For Weight Loss:**
-- **Conservative:** 1.4-1.6g per kg bodyweight (adequate muscle preservation, easier adherence)
-- **Balanced:** 1.6-1.8g per kg bodyweight (good muscle preservation, sustainable)
-- **Rapid:** 1.7-1.9g per kg bodyweight (higher end for aggressive deficit, conditional on training)
+**FOR ADULTS AGE < 65:**
 
-**For Muscle Gain:**
-- **Conservative:** 1.6-1.8g per kg bodyweight (lean gains, no bloat)
-- **Balanced:** 1.7-1.9g per kg bodyweight (optimal for most lifters)
-- **Rapid:** 1.8-2.0g per kg bodyweight (only if training 5-6x/week)
+**Weight Loss:**
+- **Conservative:** 1.4-1.6g per kg bodyweight (muscle preservation during deficit)
+- **Balanced:** 1.6-1.8g per kg bodyweight (optimal muscle retention)
+- **Rapid:** 1.8-2.0g per kg bodyweight (only if training 3+ times/week)
 
-**For Weight Gain (general):**
-- **Conservative:** 1.4-1.6g per kg
-- **Balanced:** 1.5-1.7g per kg
-- **Rapid:** 1.6-1.8g per kg
+**Muscle Gain:**
+- **Conservative:** 1.6-1.8g per kg bodyweight (sustainable lean gains)
+- **Balanced:** 1.7-1.9g per kg bodyweight (good for regular training)
+- **Rapid:** 1.8-2.0g per kg bodyweight (active training 5-6x/week)
 
-**For Balanced Diet / Maintenance:**
-- **Age < 60:** 1.2-1.5g per kg bodyweight (health-focused, not performance)
-- **Age 60+:** 0.9-1.1g per kg bodyweight (reduce kidney stress, adequate for muscle maintenance)
-- Ignore goal_pace for maintenance
+**Weight Gain (general):**
+- **Conservative:** 1.2-1.4g per kg bodyweight
+- **Balanced:** 1.4-1.6g per kg bodyweight
+- **Rapid:** 1.6-1.8g per kg bodyweight
 
-**For Medical Conditions:**
+**Maintenance / Balanced Diet:**
+- 1.2-1.5g per kg bodyweight (health-focused)
+
+**Medical Conditions:**
 - 1.0-1.3g per kg (unless kidney issues, then 0.8-1.0g per kg)
 
+---
+
+**FOR ADULTS AGE 65+ (CRITICAL - DIFFERENT RULES):**
+
+**Weight Loss (conservative only):**
+- 0.9-1.1g per kg bodyweight
+- Prioritize digestibility and muscle preservation over aggression
+- NEVER exceed 1.2g/kg unless under medical supervision
+
+**Maintenance / Balanced Diet:**
+- 0.9-1.1g per kg bodyweight
+- Adequate for muscle maintenance and sarcopenia prevention
+- Higher end if regularly active
+
+**Weight Gain / Muscle Gain:**
+- 1.0-1.2g per kg bodyweight (max)
+- Focus on high-quality, easily digestible protein sources
+
+**Medical Conditions:**
+- 0.8-1.0g per kg (kidney-friendly, gentle)
+- Conservative to reduce metabolic stress
+
+**EXPLANATION REQUIREMENTS FOR AGE 65+:**
+- Must emphasize digestibility and achievability
+- Use phrases like: "This moderate protein level supports muscle maintenance without overwhelming digestion"
+- Avoid aggressive language like "maximize protein" or "high protein"
+
+---
+
+**FOR ADULTS AGE 60-64 (TRANSITION GROUP):**
+
+Use intermediate ranges between <60 and 65+ groups:
+- Weight loss: 1.2-1.4g per kg
+- Maintenance: 1.0-1.3g per kg
+- Muscle gain: 1.4-1.6g per kg
+
+---
+
 **CALCULATION RULES:**
-1. Calculate: weight × lower_multiplier and weight × higher_multiplier
-2. Round to nearest 5g
-3. Keep range tight: 10-20g difference max
-4. Final output example: "120-135g" NOT "120-160g"
+1. CHECK AGE FIRST - apply appropriate age bracket
+2. Calculate: weight × lower_multiplier and weight × higher_multiplier
+3. Round to nearest 5g
+4. Keep range tight: 10-20g difference max
+5. Final output example: "120-135g" NOT "120-160g"
 
-**Example (83kg, weight loss, balanced):** 83 × 1.6 = 133g, 83 × 1.8 = 149g → Round to **130-150g protein**
+**EXPLANATION STYLE BY AGE:**
+- **Age < 60:** "This protein level (X-Yg/kg) supports [goal] while remaining achievable with normal meals. Higher end if training regularly."
+- **Age 60-64:** "This moderate protein level supports [goal] while being gentle on digestion and sustainable long-term."
+- **Age 65+:** "This protein level supports muscle maintenance and strength without overwhelming digestion. Quality over quantity at this stage."
 
-**For this user ({profile.weight_kg}kg, {profile.age}y, {profile.goal}, {profile.goal_pace}):** Use appropriate multiplier range above.
+**Example (83kg, age 29, weight loss, balanced):**
+Age < 65 → 83 × 1.6 = 133g, 83 × 1.8 = 149g → Round to **130-145g protein**
+
+**Example (60kg, age 68, weight loss, conservative):**
+Age 65+ → 60 × 0.9 = 54g, 60 × 1.1 = 66g → Round to **55-65g protein**
+**Explanation:** "This moderate protein level (0.9-1.1g/kg) supports muscle maintenance during gradual fat loss without overwhelming digestion. Focus on high-quality sources like dal, yogurt, and lean proteins."
+
+**For this user ({profile.weight_kg}kg, {profile.age}y, {profile.goal}, {profile.goal_pace}):** Apply appropriate age-based multiplier range above.
 
 ---
 
@@ -658,7 +854,21 @@ User Stats: {profile.weight_kg}kg, {profile.age}y, Goal: {profile.goal}, Pace: {
 4. **Safety:** If conditions conflict or are severe (e.g., kidney issues + high protein need), recommend conservative approach
 
 **For this user's conditions:** {profile.medical_manual if profile.medical_manual else "None - proceed with standard recommendations"}
-→ Apply the above adjustments to EVERY meal in the 7-day plan
+
+**CRITICAL IMPLEMENTATION CHECKLIST:**
+If user has medical conditions, you MUST:
+✓ Modify EVERY meal in all 7 days based on condition-specific rules above
+✓ Replace problematic ingredients (e.g., white rice → brown rice for diabetes)
+✓ Add condition-appropriate foods (e.g., oats for high cholesterol)
+✓ Avoid trigger foods completely (e.g., no pickles for hypertension)
+✓ Mention adjustments clearly in medical_adjustments field
+✓ Ensure meals are still delicious and culturally appropriate
+
+VERIFICATION: Before finalizing output, ask yourself:
+- Did I check EVERY meal against medical conditions?
+- Did I replace ALL problematic ingredients?
+- Is medical_adjustments field specific and accurate?
+- Would a nutritionist approve this for the user's condition?
 
 ---
 
@@ -675,21 +885,35 @@ Briefly restate:
 #### 2️⃣ Daily Nutrition Targets (WITH EXPLANATIONS)
 **CRITICAL:** Use EXACT calculated values AND provide COACH-LIKE, CONFIDENCE-BUILDING explanations!
 
-**EXPLANATION TONE GUIDELINES:**
+**EXPLANATION TONE GUIDELINES (AGE-SENSITIVE):**
 - Keep explanations SHORT (2-4 lines max)
 - Use encouraging, coach-like language
 - Avoid overly technical jargon
-- Use conditional language where appropriate ("higher end if training hard")
+- Use conditional language ("higher end if training regularly")
 - Emphasize sustainability and adherence over perfection
-- Build trust by showing logic WITHOUT exposing math that can contradict
+- Build trust by showing logic WITHOUT exposing contradictory math
+- **FOR AGE 65+:** Emphasize safety, strength maintenance, energy, and recovery. Use gentle, reassuring language. NEVER use aggressive terms.
 
 **You MUST include:**
 
 **Calories:** Narrow 50-80 kcal range (e.g., "1900-1950 kcal")
-**Calories Reasoning:** 2-4 lines, coach-like. Use "estimated maintenance around X-Y kcal" OR avoid TDEE entirely. Never state exact TDEE that contradicts final calories.
 
-**Protein:** Tight 10-20g range (e.g., "130-150g")  
-**Protein Reasoning:** 2-3 lines, sustainable tone. Mention g/kg range, emphasize benefits (muscle preservation, satiety). Avoid athlete-level justifications.
+**Calories Reasoning (AGE-ADAPTIVE):**
+- **Age < 60:** "Based on your stats and typical daily activity, estimated maintenance is around X-Y kcal. This [pace] approach targets [expected loss/gain rate]."
+- **Age 60-64:** "We've set a sustainable calorie level that supports your goal while maintaining energy. At this stage, gradual progress is optimal for long-term success."
+- **Age 65+:** "At your age, we've calibrated calories to prioritize maintaining strength, energy, and recovery while supporting gradual [goal]. This gentle approach helps with adherence and overall well-being."
+- NEVER state exact TDEE if it creates numerical contradictions
+- Use ranges: "estimated maintenance around X-Y kcal" or "maintenance range of X-Y kcal"
+
+**Protein:** Tight 10-20g range (e.g., "130-145g" or "55-65g")
+
+**Protein Reasoning (AGE-ADAPTIVE):**
+- **Age < 60:** "This protein level (X-Yg/kg) supports [muscle preservation/growth] during your [goal] while remaining achievable with normal meals. Higher end applies if you're training regularly."
+- **Age 60-64:** "This moderate protein level (X-Yg/kg) supports your [goal] while being gentle on digestion and sustainable long-term. Focus on high-quality sources."
+- **Age 65+:** "This protein level (X-Yg/kg) supports muscle maintenance and strength without overwhelming digestion. At this stage, we prioritize quality protein sources over quantity."
+- Mention g/kg range for transparency
+- Emphasize achievability and digestibility for elderly users
+- NEVER use aggressive language like "maximize protein" for 65+
 
 **Other Required Fields:**
 - **Carbs & Fats Guidance:** Brief, goal-appropriate
@@ -722,58 +946,96 @@ Provide a **7-day plan** with:
 - Practical and realistic Indian meals
 - 80% {profile.region} regional preference, 20% variety
 
-#### 5️⃣ Activity Guidance (CONDITIONAL - Be Specific!)
+#### 5️⃣ Activity Guidance (CONDITIONAL - Age-Appropriate & Stress-Aware!)
 **CRITICAL:** Adapt to user's age and goal. NO generic "strength + cardio" for everyone!
 
 **For Muscle Gain (Age < 50):**
 - Frequency: 4-5 days/week
 - Type: "Strength training with progressive overload"
-- Tips: "Focus on compound movements, increase weights gradually"
+- Tips: "Focus on compound movements, increase weights gradually. Allow 48h recovery between sessions."
+
+**For Muscle Gain (Age 50-64):**
+- Frequency: 3-4 days/week
+- Type: "Moderate strength training with emphasis on form"
+- Tips: "Prioritize movement quality over heavy weights. Include longer warm-ups and recovery periods."
+
+**For Muscle Gain (Age 65+):**
+- Frequency: 2-3 days/week
+- Type: "Light resistance training, bodyweight exercises, resistance bands"
+- Tips: "Focus on maintaining muscle mass and functional strength. Avoid heavy loads. Prioritize balance and mobility."
 
 **For Weight Loss (Age < 50):**
 - Frequency: 5-6 days/week
 - Type: "Cardio (walking/jogging) + light strength training"
-- Tips: "Start with 30-min walks, gradually add intensity"
+- Tips: "Start with 30-min walks, gradually add intensity. Include 2-3 strength sessions weekly."
+
+**For Weight Loss (Age 50-64):**
+- Frequency: 4-5 days/week
+- Type: "Moderate walking, light cardio, gentle strength work"
+- Tips: "Focus on consistency over intensity. Include rest days for recovery. Listen to your body."
+
+**For Weight Loss (Age 65+):**
+- Frequency: 3-4 days/week
+- Type: "Light walking, chair exercises, gentle stretching"
+- Tips: "Prioritize daily movement over intense sessions. Walking after meals helps digestion and blood sugar. Avoid high-impact activities."
 
 **For Balanced Diet / Maintenance (Age < 60):**
 - Frequency: 3-4 days/week
 - Type: "Walking, yoga, or light exercise"
-- Tips: "Focus on consistency, not intensity"
+- Tips: "Focus on consistency, not intensity. Build sustainable habits."
 
-**For Age 60+ (ANY goal):**
+**For Balanced Diet / Maintenance (Age 60+):**
 - Frequency: 3-4 days/week
-- Type: "Light walking, stretching, chair exercises"
-- Tips: "Prioritize joint health, avoid high-impact activities"
+- Type: "Light walking, stretching, balance exercises, yoga"
+- Tips: "Prioritize joint health, flexibility, and balance. Daily gentle movement is better than occasional intense exercise."
 
-**For Diabetes / Medical:**
+**For Diabetes / Medical (Any Age):**
 - Frequency: 5 days/week
 - Type: "30-45 min walking after meals"
-- Tips: "Monitor blood sugar before and after activity"
+- Tips: "Monitor blood sugar before and after activity. Consistent timing helps blood sugar regulation."
 
 **Current user:** Age {profile.age}, Goal: {profile.goal}
-**→ Choose the appropriate guidance above. DO NOT mix categories!**
+**→ Choose the appropriate guidance above based on BOTH age AND goal. DO NOT mix categories!**
 
-#### 6️⃣ Expected Results (Mandatory - Be Realistic!)
-**CRITICAL:** Base on ACTUAL calculated calories and user's stats. NO templates!
+#### 6️⃣ Expected Results (Mandatory - Be Realistic & Age-Appropriate!)
+**CRITICAL:** Base on ACTUAL calculated calories and user's stats. NO templates! Adjust expectations for age.
 
-**Calculate weight change:**
-- Calorie deficit of 500/day = 0.5kg/week
-- Calorie deficit of 750/day = 0.75kg/week
+**Calculate weight change (AGE-SENSITIVE):**
+- Calorie deficit of 500/day = ~0.5kg/week (younger adults)
+- Calorie deficit of 300-400/day = ~0.3-0.4kg/week (60-64 age group)
+- Calorie deficit of 200-300/day = ~0.2-0.3kg/week (65+ age group)
 - Surplus of 300-500/day = 0.25-0.5kg muscle gain/month
 
 **For this user:**
-Goal: {profile.goal}
-- If weight loss: Calculate expected kg/week from calorie deficit
-- If muscle gain: "0.25-0.5kg gain per month" (realistic muscle)
-- If balanced diet: "Maintenance - no significant weight change"
+Goal: {profile.goal}, Age: {profile.age}
 
-**Visible changes:** Adapt to age!
-- Age < 40: "Visible in 3-4 weeks"
-- Age 40-60: "Visible in 4-6 weeks"
-- Age 60+: "Visible in 6-8 weeks"
+**If weight loss:**
+- **Age < 60:** Calculate expected kg/week from actual calorie deficit
+- **Age 60-64:** Expect slower but sustainable progress (~0.3-0.4kg/week max)
+- **Age 65+:** Expect gentle progress (~0.2-0.3kg/week). Emphasize "This gradual pace prioritizes muscle preservation and energy levels."
 
-**Milestones:** Calculate based on weekly change × weeks
-Example: 0.5kg/week × 4 weeks = 2kg in 30 days (NOT generic "3-4kg")
+**If muscle gain:**
+- **Age < 60:** "0.25-0.5kg gain per month" (realistic muscle)
+- **Age 60+:** "0.2-0.3kg gain per month with strength training" (slower but sustainable)
+
+**If balanced diet:** "Maintenance - no significant weight change. Focus on energy, strength, and overall health."
+
+**Visible changes (AGE-ADAPTED):**
+- **Age < 40:** "Visible changes in 3-4 weeks"
+- **Age 40-60:** "Visible changes in 4-6 weeks"
+- **Age 60-64:** "Visible changes in 5-7 weeks"
+- **Age 65+:** "Visible changes in 6-8 weeks. Progress may be gradual but sustainable."
+
+**Milestones (CALCULATED, NOT GENERIC):**
+- **30-day milestone:** Calculate based on weekly change × 4 weeks
+- **60-day milestone:** Calculate based on weekly change × 8 weeks
+- **90-day milestone:** Calculate based on weekly change × 12 weeks
+- Example for younger adult: 0.5kg/week × 4 = 2kg in 30 days
+- Example for 65+: 0.25kg/week × 4 = 1kg in 30 days
+
+**Plateau Warning (AGE-SENSITIVE):**
+- **Age < 60:** "Progress may slow after 8-12 weeks. Adjust calories by 100-150 kcal if needed."
+- **Age 60+:** "If progress stalls, focus on strength, energy, and overall health rather than aggressive adjustments."
 
 #### 7️⃣ Important Notes & Safety
 Include:
@@ -813,7 +1075,7 @@ Include:
 
 **Example 2 (25M, 75kg, 175cm, Muscle Gain, Balanced):** BMR=1719 → TDEE=2321 (midpoint) → Surplus +350 → Calories: **2650-2700 kcal**, Protein: **128-143g** (1.7-1.9g/kg)
 
-**Example 3 (40F, 70kg, 165cm, Weight Loss, Balanced):** BMR=1370 → TDEE=1850 (midpoint) → Deficit 22.5% → Calories: **1400-1450 kcal**, Protein: **110-125g** (1.6-1.8g/kg)
+**Example 3 (40F, 70kg, 165cm, Weight Loss, Balanced):** BMR=1370 → TDEE=1850 (midpoint) → Deficit 22.5% → Calories: **1400-1450 kcal**, Protein: **85-100g** (1.2-1.4g/kg)
 
 **VALIDATION:** BMR correct? TDEE conservative (1.3-1.4× or 1.2 for 60+)? Deficit/surplus matches goal_pace? Calories 50-80 kcal range? Protein 10-20g range, sustainable multipliers? Reasoning coach-like? Medical adjustments specific? No contradictions?
 
@@ -831,7 +1093,7 @@ Include:
     "calories": "[CALCULATED narrow 50-80 kcal range, e.g., 1900-1950 kcal]",
     "calories_reasoning": "[MANDATORY: Coach-like explanation, 2-4 lines. Choose GOOD examples from guidelines above. AVOID stating exact TDEE if it creates math contradictions. Example: 'Based on your age, stats, and typical activity, your estimated maintenance is around 2400-2550 kcal. For balanced weight loss, we've designed a calibrated deficit to support steady fat loss of 0.5-0.75kg per week.']",
     "protein": "[CALCULATED tight 10-20g range using SUSTAINABLE multipliers, e.g., 130-150g]",
-    "protein_reasoning": "[MANDATORY: Coach-like, 2-3 lines. Use GOOD examples from guidelines. AVOID athlete-level justifications. Example: 'This protein level (1.6-1.8g per kg) supports muscle preservation during your deficit while staying achievable with normal meals. Higher end if you're training regularly.']",
+    "protein_reasoning": "[MANDATORY: Coach-like, 2-3 lines. Use GOOD examples from guidelines. AVOID athlete-level justifications. Example: 'This protein level (1.2-1.4g per kg) supports muscle preservation during your deficit while staying achievable with normal meals. Higher end if you're training regularly.']",
     "carbs_guidance": "[Adapt based on medical conditions. Example: 'Moderate whole grains' OR 'Low GI carbs (brown rice, oats, millets)' if diabetic]",
     "fats_guidance": "[Adapt based on medical conditions. Example: 'Healthy fats from nuts, olive oil' OR 'Limited saturated fats, focus on omega-3' if high cholesterol]",
     "medical_adjustments": "[CRITICAL: If conditions exist, be specific! Example: 'Diabetes: Using low GI carbs, avoiding refined flour and white rice. Including protein with every meal.' OR 'None - standard healthy approach' if no conditions]",
@@ -936,30 +1198,112 @@ async def generate_grocery(plan_id: int, db: Session = Depends(get_db)):
     current_month = datetime.now().strftime("%B")
     current_week = datetime.now().isocalendar()[1]
 
-    # 3. MINIMAL Grocery Intelligence - Force valid JSON
+    # 3. SMART DYNAMIC Grocery Intelligence - Analyze diet plan specifics
     system_prompt = """
-Generate a grocery shopping list from the meal plan.
+You are a grocery list generation AI for Indian households. Generate a SMART, BUDGET-CONSCIOUS shopping list from the meal plan.
 
 CRITICAL: Output MUST be valid JSON. Keep all text simple with no special chars.
 
-Use these prices:
-Vegetables Rs 50, Fruits Rs 80, Dairy Rs 100, Grains Rs 60, Protein Rs 200
+TASK: Analyze the 7-day meal plan and:
+1. Extract ALL unique ingredients mentioned
+2. Calculate REALISTIC weekly quantities based on actual meals (not generic estimates)
+3. Price items based on Indian market rates and actual quantities needed
+4. Identify budget optimization opportunities
 
-Output this exact structure:
+PRICING GUIDELINES (Indian Market Rates - Adjust based on calculated quantities):
+
+VEGETABLES & FRUITS:
+- Leafy Greens (Spinach, Methi, etc.): Rs 20-30 per bunch/250g
+- Common Veggies (Tomato, Onion, Potato, Capsicum): Rs 30-60 per kg
+- Premium Veggies (Broccoli, Zucchini, Mushroom): Rs 80-150 per kg
+- Seasonal Fruits (Banana, Apple, Papaya): Rs 40-80 per kg
+- Premium Fruits (Berries, Avocado, Pomegranate): Rs 150-300 per kg
+
+DAIRY & PROTEINS:
+- Milk (1L): Rs 55-70
+- Paneer (200-250g): Rs 80-100
+- Curd/Yogurt (500g): Rs 40-60
+- Eggs (1 dozen): Rs 70-90
+- Chicken (1kg): Rs 180-220
+- Fish (1kg): Rs 250-400 (varies by type)
+- Tofu (200g): Rs 50-70
+
+GRAINS & PULSES:
+- Rice (1kg): Rs 50-80 (normal), Rs 100-150 (basmati)
+- Wheat Flour/Atta (1kg): Rs 40-50
+- Oats (500g): Rs 120-160
+- Dal/Lentils (1kg): Rs 100-150
+- Quinoa (500g): Rs 250-350
+
+SPICES, OILS & CONDIMENTS:
+- Cooking Oil (1L): Rs 150-200
+- Ghee (500g): Rs 300-400
+- Basic Spices (100g each): Rs 30-50
+- Premium Spices (Saffron, Cardamom): Rs 100-500
+
+OTHER:
+- Nuts (100g): Rs 100-200
+- Dry Fruits (100g): Rs 150-300
+- Bread (1 loaf): Rs 40-50
+- Protein Powder (1kg): Rs 1500-3000
+
+SMART CALCULATION LOGIC:
+1. Parse each meal and extract ingredients with context
+2. Estimate realistic weekly quantities:
+   - If "2 Rotis" appears 7 times → ~1.5kg atta needed
+   - If "1 cup Dal" appears 5 times → ~500g dal needed
+   - If "Paneer Sabzi" appears 2 times → ~300g paneer needed
+3. Calculate prices: quantity × unit_price
+4. Sum ALL individual item prices for total
+5. Budget level: "low" if total < 800, "moderate" if 800-1500, "high" if > 1500
+6. Find savings: suggest cheaper alternatives for expensive items
+
+EXAMPLE ANALYSIS:
+Meal: "2 Rotis + 1 cup Dal + Sabzi (Aloo Gobi)"
+→ Extract: Wheat flour (for rotis), Dal, Potato, Cauliflower, Spices
+→ Weekly quantity: If this meal repeats 3 times, you need portions accordingly
+
+OUTPUT FORMAT (JSON):
 {
   "categories": [
-    {"name": "Vegetables", "items": [{"name": "Tomato", "quantity": "1kg", "display": "1kg Tomato", "estimated_price": 50, "price_range": "Rs 40-60", "seasonal_status": "available", "seasonal_warning": null, "alternative": null, "used_in_meals": ["Day 1"]}]}
+    {"name": "Vegetables", "items": [
+      {"name": "Tomato", "quantity": "2kg", "display": "2kg Tomato", "estimated_price": 100, "price_range": "Rs 90-120", "seasonal_status": "available", "seasonal_warning": null, "alternative": null, "used_in_meals": ["Day 1 Lunch", "Day 3 Dinner", "Day 5 Lunch"]}
+    ]},
+    {"name": "Dairy and Proteins", "items": [
+      {"name": "Milk", "quantity": "7L", "display": "7L Milk", "estimated_price": 420, "price_range": "Rs 385-490", "seasonal_status": "available", "seasonal_warning": null, "alternative": null, "used_in_meals": ["Daily breakfast"]}
+    ]},
+    {"name": "Grains and Pulses", "items": [
+      {"name": "Wheat Flour", "quantity": "2kg", "display": "2kg Atta", "estimated_price": 90, "price_range": "Rs 80-100", "seasonal_status": "available", "seasonal_warning": null, "alternative": null, "used_in_meals": ["Rotis - Multiple days"]}
+    ]},
+    {"name": "Spices and Oils", "items": [
+      {"name": "Cooking Oil", "quantity": "1L", "display": "1L Oil", "estimated_price": 180, "price_range": "Rs 150-200", "seasonal_status": "available", "seasonal_warning": null, "alternative": null, "used_in_meals": ["All cooking"]}
+    ]}
   ],
-  "budget_analysis": {"total_estimated": 1200, "breakdown": {"vegetables": 300, "dairy_proteins": 400, "grains_pulses": 300, "spices": 100, "other": 100}, "budget_level": "moderate", "savings_potential": 200, "smart_swaps": [{"original": "Paneer", "alternative": "Tofu", "savings": 50, "reason": "Cheaper protein"}]},
-  "seasonal_summary": {"out_of_season_count": 0, "warnings": [], "message": "All items available"},
-  "shopping_tips": ["Buy from local market", "Buy in bulk"]
+  "budget_analysis": {
+    "total_estimated": [MUST CALCULATE: exact sum of ALL item estimated_price values],
+    "breakdown": {
+      "vegetables": [CALCULATE: sum of vegetable category items],
+      "dairy_proteins": [CALCULATE: sum of dairy and protein items],
+      "grains_pulses": [CALCULATE: sum of grains and pulses],
+      "spices": [CALCULATE: sum of spices/oils],
+      "other": [CALCULATE: sum of other items]
+    },
+    "budget_level": "[CALCULATE: low if total < 800, moderate if 800-1500, high if > 1500]",
+    "savings_potential": [CALCULATE: realistic savings amount if cheaper swaps exist, 0 otherwise],
+    "smart_swaps": [{"original": "Basmati Rice", "alternative": "Regular Rice", "savings": 60, "reason": "Similar nutrition lower cost"}]
+  },
+  "seasonal_summary": {"out_of_season_count": 0, "warnings": [], "message": "All items in season"},
+  "shopping_tips": ["Buy vegetables from local market for 20 percent savings", "Buy staples in bulk for 15 percent discount"]
 }
 
-RULES:
-- Keep ALL text under 30 chars
-- Use only letters numbers and spaces
-- NO commas apostrophes or special punctuation in any text field
+CRITICAL RULES:
+- Analyze ACTUAL meals in the plan, don't use generic templates
+- Calculate quantities based on REAL consumption (e.g., if "2 Rotis" appear 14 times across week, estimate atta needed)
+- Price each item realistically based on quantity
+- Total MUST be exact sum of all items
+- Keep text simple, no special characters
 - Use null not empty string
+- Smart swaps should be practical and culturally appropriate
 """
 
     # Optimize: Extract only meal data, not full plan structure
@@ -986,11 +1330,69 @@ RULES:
             logger.error(f"AI grocery generation failed: {grocery_data}")
             raise HTTPException(status_code=500, detail="Failed to generate grocery list")
 
-        # 4. Save Update
+        # 4. POST-PROCESSING: Calculate totals dynamically from items
+        # This ensures the total is always correct even if AI doesn't calculate it properly
+        categories = grocery_data.get("categories", [])
+        total_calculated = 0
+        breakdown_calculated = {
+            "vegetables": 0,
+            "dairy_proteins": 0,
+            "grains_pulses": 0,
+            "spices": 0,
+            "other": 0
+        }
+
+        # Calculate totals from actual items
+        for category in categories:
+            category_name = category.get("name", "").lower()
+            items = category.get("items", [])
+            
+            category_total = 0
+            for item in items:
+                item_price = item.get("estimated_price", 0)
+                if isinstance(item_price, (int, float)) and item_price > 0:
+                    category_total += item_price
+                    total_calculated += item_price
+            
+            # Map category to breakdown
+            if "vegetable" in category_name:
+                breakdown_calculated["vegetables"] += category_total
+            elif any(keyword in category_name for keyword in ["dairy", "protein", "meat", "chicken", "fish", "egg", "paneer", "milk", "yogurt", "curd"]):
+                breakdown_calculated["dairy_proteins"] += category_total
+            elif any(keyword in category_name for keyword in ["grain", "pulse", "dal", "rice", "wheat", "atta", "flour"]):
+                breakdown_calculated["grains_pulses"] += category_total
+            elif any(keyword in category_name for keyword in ["spice", "oil", "masala"]):
+                breakdown_calculated["spices"] += category_total
+            else:
+                breakdown_calculated["other"] += category_total
+
+        # Update budget_analysis with calculated values
+        if "budget_analysis" not in grocery_data:
+            grocery_data["budget_analysis"] = {}
+        
+        # Only update if calculated total is valid and different from AI's total
+        if total_calculated > 0:
+            grocery_data["budget_analysis"]["total_estimated"] = int(round(total_calculated))
+            grocery_data["budget_analysis"]["breakdown"] = {
+                k: int(round(v)) for k, v in breakdown_calculated.items()
+            }
+            
+            # Update budget_level based on calculated total
+            if total_calculated < 800:
+                grocery_data["budget_analysis"]["budget_level"] = "low"
+            elif total_calculated <= 1500:
+                grocery_data["budget_analysis"]["budget_level"] = "moderate"
+            else:
+                grocery_data["budget_analysis"]["budget_level"] = "high"
+            
+            logger.info(f"Recalculated totals: Total=₹{total_calculated}, Breakdown={breakdown_calculated}")
+
+        # 5. Save Update
         plan.grocery_json = json.dumps(grocery_data)
         db.commit()
 
-        logger.info(f"Enhanced grocery list generated successfully. Total: ₹{grocery_data.get('budget_analysis', {}).get('total_estimated', 0)}")
+        final_total = grocery_data.get("budget_analysis", {}).get("total_estimated", 0)
+        logger.info(f"Enhanced grocery list generated successfully. Total: ₹{final_total}")
         return grocery_data
 
     except HTTPException:
@@ -1330,250 +1732,477 @@ async def get_recipe_video(request: RecipeVideoRequest):
             "error": str(e)
         }
 
-# --- BARCODE SCANNER ENDPOINT ---
 
-class BarcodeScanRequest(BaseModel):
-    barcode: str
-    user_diet_preference: Optional[str] = None
-    user_goal: Optional[str] = None
+# --- AGENTIC AI ENDPOINTS ---
 
-@app.post("/scan-barcode")
-async def scan_barcode(request: BarcodeScanRequest):
+# Pydantic models for requests
+class WeeklyCheckInRequest(BaseModel):
+    plan_id: int
+    current_weight_kg: float
+    diet_adherence_percent: int = 70
+    exercise_adherence_percent: int = 50
+    energy_level: Optional[str] = None  # low, moderate, high
+    hunger_level: Optional[str] = None
+    challenges: Optional[str] = None
+    notes: Optional[str] = None
+
+class CheckInAnalysisResponse(BaseModel):
+    success: bool
+    week_number: int
+    weight_change_kg: float
+    insights: dict
+    adjusted_calories: Optional[int] = None
+    recommendations: List[str]
+
+@app.post("/weekly-checkin", response_model=CheckInAnalysisResponse)
+async def submit_weekly_checkin(
+    request: WeeklyCheckInRequest,
+    db: Session = Depends(get_db)
+):
     """
-    Scan a product barcode and get nutrition info + diet compatibility.
-    Uses Open Food Facts API (free, 2M+ products, strong Indian coverage).
+    Weekly Check-In Agent: Analyzes user progress and provides AI-driven insights.
+
+    Flow:
+    1. Record current week's metrics
+    2. Compare with previous week(s)
+    3. Detect plateaus, off-track progress
+    4. Generate AI insights and recommendations
+    5. Trigger adaptive calorie adjustments if needed
     """
     try:
-        barcode = request.barcode.strip()
-        
-        # Validate barcode format
-        if not barcode or len(barcode) < 8:
-            return {
-                "success": False,
-                "error": "Invalid barcode format. Please scan a valid product barcode."
-            }
+        # 1. Get diet plan and user info
+        plan = db.query(DietPlan).filter(DietPlan.id == request.plan_id).first()
+        if not plan:
+            raise HTTPException(status_code=404, detail="Diet plan not found")
 
-        logger.info(f"Looking up barcode: {barcode}")
+        user = db.query(User).filter(User.id == plan.user_id).first()
 
-        # 1. Look up product in Open Food Facts
-        openfoodfacts_url = f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
+        # Parse user profile data
+        profile_data = json.loads(user.profile_data) if isinstance(user.profile_data, str) else user.profile_data
+        starting_weight = profile_data.get('weight_kg', request.current_weight_kg)
+        user_goal = profile_data.get('goal', 'Not specified')
+        user_age = profile_data.get('age', 30)
 
-        response = requests.get(openfoodfacts_url, timeout=10)
-        
-        if response.status_code != 200:
-            logger.warning(f"Open Food Facts API error: {response.status_code}")
-            return {
-                "success": False,
-                "error": "Unable to connect to product database. Please try again."
-            }
-        
-        data = response.json()
+        # 2. Get previous check-ins to calculate week number and trends
+        previous_checkins = db.query(WeeklyCheckIn).filter(
+            WeeklyCheckIn.diet_plan_id == request.plan_id
+        ).order_by(WeeklyCheckIn.week_number.desc()).all()
 
-        if data.get("status") != 1:
-            logger.info(f"Product not found for barcode: {barcode}")
-            return {
-                "success": False,
-                "error": "Product not found in database. Try another barcode or use 'Search by Name' instead."
-            }
+        week_number = len(previous_checkins) + 1
 
-        product = data.get("product", {})
+        # Calculate weight change from previous week
+        weight_change_kg = 0
+        if previous_checkins:
+            last_checkin = previous_checkins[0]
+            weight_change_kg = request.current_weight_kg - last_checkin.current_weight_kg
+        else:
+            # First check-in: compare with starting weight
+            weight_change_kg = request.current_weight_kg - starting_weight
 
-        # 2. Extract product info
-        product_name = product.get("product_name", "Unknown Product")
-        brands = product.get("brands", "Unknown Brand")
-        quantity = product.get("quantity", "N/A")
+        # 3. Detect plateau (no significant change for 2+ weeks)
+        is_plateau = False
+        if len(previous_checkins) >= 2:
+            recent_changes = [
+                abs(previous_checkins[i].weight_change_kg or 0)
+                for i in range(min(2, len(previous_checkins)))
+            ]
+            # Plateau if all recent changes < 0.2kg
+            is_plateau = all(change < 0.2 for change in recent_changes) and abs(weight_change_kg) < 0.2
 
-        # 3. Extract nutrition (per 100g)
-        nutriments = product.get("nutriments", {})
-        nutrition_info = {
-            "calories": nutriments.get("energy-kcal_100g", nutriments.get("energy-kcal", 0)),
-            "protein": nutriments.get("proteins_100g", nutriments.get("proteins", 0)),
-            "carbs": nutriments.get("carbohydrates_100g", nutriments.get("carbohydrates", 0)),
-            "sugar": nutriments.get("sugars_100g", nutriments.get("sugars", 0)),
-            "fat": nutriments.get("fat_100g", nutriments.get("fat", 0)),
-            "saturated_fat": nutriments.get("saturated-fat_100g", nutriments.get("saturated-fat", 0)),
-            "fiber": nutriments.get("fiber_100g", nutriments.get("fiber", 0)),
-            "sodium": nutriments.get("sodium_100g", nutriments.get("sodium", 0)),
-        }
+        # 4. Calculate expected vs actual progress
+        plan_json = json.loads(plan.plan_json) if isinstance(plan.plan_json, str) else plan.plan_json
+        expected_results = plan_json.get('expected_results', {})
+        expected_weekly_change = expected_results.get('weekly_change_kg', 0.5) if user_goal == 'Weight Loss' else 0.25
 
-        # 4. Check ingredients for diet compatibility
-        ingredients_text = product.get("ingredients_text", "").lower()
-        allergens = product.get("allergens", "").lower()
+        variance_kg = abs(weight_change_kg) - expected_weekly_change
+        is_off_track = abs(variance_kg) > (expected_weekly_change * 0.5)  # >50% variance
 
-        # Diet flags
-        is_vegetarian = "non-vegetarian" not in product.get("labels", "").lower()
-        is_vegan = "vegan" in product.get("labels", "").lower()
-
-        # Check for non-veg ingredients
-        non_veg_keywords = ["chicken", "mutton", "beef", "pork", "fish", "egg", "meat", "gelatin"]
-        contains_non_veg = any(keyword in ingredients_text for keyword in non_veg_keywords)
-
-        if contains_non_veg:
-            is_vegetarian = False
-            is_vegan = False
-
-        # 5. AI Analysis - Diet Compatibility & Alternatives
+        # 5. Build AI prompt for insights
         ai_prompt = f"""
-You are a nutrition expert analyzing a scanned product for an Indian user.
+You are a nutrition AI analyzing a user's weekly progress. Provide personalized insights.
 
-Product: {product_name} by {brands}
-Quantity: {quantity}
+USER PROFILE:
+- Goal: {user_goal}
+- Age: {user_age}
+- Starting Weight: {starting_weight}kg
+- Current Weight: {request.current_weight_kg}kg
+- Week: {week_number}
 
-Nutrition (per 100g):
-- Calories: {nutrition_info['calories']} kcal
-- Protein: {nutrition_info['protein']}g
-- Carbs: {nutrition_info['carbs']}g (Sugar: {nutrition_info['sugar']}g)
-- Fat: {nutrition_info['fat']}g (Saturated: {nutrition_info['saturated_fat']}g)
-- Fiber: {nutrition_info['fiber']}g
-- Sodium: {nutrition_info['sodium']}mg
+THIS WEEK'S DATA:
+- Weight Change: {weight_change_kg:+.2f}kg
+- Diet Adherence: {request.diet_adherence_percent}%
+- Exercise Adherence: {request.exercise_adherence_percent}%
+- Energy Level: {request.energy_level or 'Not reported'}
+- Hunger Level: {request.hunger_level or 'Not reported'}
+- Challenges: {request.challenges or 'None reported'}
 
-User Profile:
-- Diet Preference: {request.user_diet_preference or 'Not specified'}
-- Goal: {request.user_goal or 'Not specified'}
+TREND ANALYSIS:
+- Expected Weekly Change: {expected_weekly_change:+.2f}kg
+- Variance from Expected: {variance_kg:+.2f}kg
+- Plateau Detected: {is_plateau}
+- Off Track: {is_off_track}
 
-Ingredients: {ingredients_text[:200] if ingredients_text else 'Not available'}
+TASK:
+1. Analyze progress (is it good, too fast, too slow, plateau?)
+2. Provide 3-5 SHORT, ACTIONABLE recommendations (bullet points)
+3. Suggest calorie adjustment if needed (return number or null)
+4. Keep tone SUPPORTIVE and MOTIVATING
 
-Task:
-1. Analyze if this product fits the user's diet preference and goal (2-3 sentences max)
-2. Suggest 3 healthier Indian alternatives (brands available in India)
-3. Focus on popular Indian brands like: Amul, Mother Dairy, Britannia, Parle, Nestle India, ITC, Haldiram's, MTR, etc.
-
-Format:
-COMPATIBILITY: [Your analysis with emoji ✅ or ❌]
-
-ALTERNATIVES:
-1. [Product name] - [Why it's better]
-2. [Product name] - [Why it's better]
-3. [Product name] - [Why it's better]
+OUTPUT FORMAT (JSON):
+{{
+  "progress_assessment": "1-2 sentences analyzing progress",
+  "is_on_track": true/false,
+  "plateau_detected": true/false,
+  "recommendations": [
+    "Recommendation 1",
+    "Recommendation 2",
+    "Recommendation 3"
+  ],
+  "calorie_adjustment": -100 or null (suggest adjustment amount, or null if no change needed),
+  "adjustment_reason": "plateau" or "too_fast" or "too_slow" or null,
+  "motivation_message": "Short encouraging message"
+}}
 """
 
+        # 6. Call OpenAI for AI insights
         ai_response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": ai_prompt}],
             temperature=0.7,
-            max_tokens=300
+            max_tokens=500,
+            response_format={"type": "json_object"}
         )
 
-        ai_analysis = ai_response.choices[0].message.content.strip()
+        insights_json = json.loads(ai_response.choices[0].message.content.strip())
 
-        # Parse AI response
-        compatibility = ""
-        alternatives = []
+        # 7. Determine calorie adjustment
+        adjusted_calories = None
+        adjustment_reason = None
 
-        if "COMPATIBILITY:" in ai_analysis:
-            parts = ai_analysis.split("ALTERNATIVES:")
-            compatibility = parts[0].replace("COMPATIBILITY:", "").strip()
+        if insights_json.get('calorie_adjustment'):
+            # Get current calorie target from plan
+            current_calories = plan_json.get('nutrition_targets', {}).get('calories_range', '1800-1900')
+            current_calories_mid = int(current_calories.split('-')[0]) + 50  # Approximate midpoint
 
-            if len(parts) > 1:
-                alt_text = parts[1].strip()
-                alt_lines = [line.strip() for line in alt_text.split("\n") if line.strip() and line.strip()[0].isdigit()]
-                alternatives = [line[3:].strip() if line[2] == '.' else line[2:].strip() for line in alt_lines[:3]]
+            adjustment_amount = insights_json['calorie_adjustment']
+            adjusted_calories = current_calories_mid + adjustment_amount
+            adjustment_reason = insights_json.get('adjustment_reason', 'ai_suggested')
 
-        # 6. Return formatted response
+            # Log the adjustment
+            adjustment_log = CalorieAdjustmentLog(
+                user_id=user.id,
+                diet_plan_id=request.plan_id,
+                previous_calories=current_calories_mid,
+                new_calories=adjusted_calories,
+                adjustment_amount=adjustment_amount,
+                reason=adjustment_reason,
+                trigger_metric='weekly_checkin',
+                ai_explanation=insights_json.get('motivation_message', '')
+            )
+            db.add(adjustment_log)
+
+        # 8. Save check-in to database
+        checkin = WeeklyCheckIn(
+            user_id=user.id,
+            diet_plan_id=request.plan_id,
+            week_number=week_number,
+            current_weight_kg=request.current_weight_kg,
+            weight_change_kg=weight_change_kg,
+            diet_adherence_percent=request.diet_adherence_percent,
+            exercise_adherence_percent=request.exercise_adherence_percent,
+            energy_level=request.energy_level,
+            hunger_level=request.hunger_level,
+            challenges=request.challenges,
+            notes=request.notes,
+            ai_insights_json=json.dumps(insights_json),
+            adjusted_calories=adjusted_calories,
+            adjustment_reason=adjustment_reason
+        )
+        db.add(checkin)
+
+        # 9. Create progress snapshot
+        total_weight_change = request.current_weight_kg - starting_weight
+        avg_weekly_change = total_weight_change / week_number if week_number > 0 else 0
+
+        snapshot = ProgressSnapshot(
+            user_id=user.id,
+            diet_plan_id=request.plan_id,
+            weight_kg=request.current_weight_kg,
+            weight_trend='losing' if total_weight_change < 0 else 'gaining' if total_weight_change > 0 else 'stable',
+            total_weight_change_kg=total_weight_change,
+            avg_weekly_change_kg=avg_weekly_change,
+            weeks_on_plan=week_number,
+            is_plateau=is_plateau,
+            is_off_track=is_off_track,
+            needs_adjustment=adjusted_calories is not None
+        )
+        db.add(snapshot)
+
+        db.commit()
+
+        logger.info(f"Weekly check-in completed for user {user.id}, week {week_number}")
+
+        # 10. Return response
+        return CheckInAnalysisResponse(
+            success=True,
+            week_number=week_number,
+            weight_change_kg=weight_change_kg,
+            insights=insights_json,
+            adjusted_calories=adjusted_calories,
+            recommendations=insights_json.get('recommendations', [])
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Weekly check-in error: {e}")
+        raise HTTPException(status_code=500, detail=f"Check-in failed: {str(e)}")
+
+@app.get("/progress-history/{plan_id}")
+async def get_progress_history(plan_id: int, db: Session = Depends(get_db)):
+    """Get all check-ins and progress snapshots for a diet plan"""
+    try:
+        checkins = db.query(WeeklyCheckIn).filter(
+            WeeklyCheckIn.diet_plan_id == plan_id
+        ).order_by(WeeklyCheckIn.week_number.asc()).all()
+
+        snapshots = db.query(ProgressSnapshot).filter(
+            ProgressSnapshot.diet_plan_id == plan_id
+        ).order_by(ProgressSnapshot.snapshot_date.asc()).all()
+
+        calorie_adjustments = db.query(CalorieAdjustmentLog).filter(
+            CalorieAdjustmentLog.diet_plan_id == plan_id
+        ).order_by(CalorieAdjustmentLog.adjustment_date.desc()).all()
+
         return {
             "success": True,
-            "product": {
-                "name": product_name,
-                "brand": brands,
-                "quantity": quantity,
-                "image_url": product.get("image_url", ""),
-                "barcode": barcode
-            },
-            "nutrition": nutrition_info,
-            "diet_info": {
-                "is_vegetarian": is_vegetarian,
-                "is_vegan": is_vegan,
-                "allergens": allergens if allergens else "None listed"
-            },
-            "ai_analysis": {
-                "compatibility": compatibility,
-                "alternatives": alternatives
-            },
-            "raw_ingredients": ingredients_text[:300] if ingredients_text else "Not available"
-        }
-
-    except requests.Timeout:
-        logger.error("Barcode lookup timeout")
-        return {
-            "success": False,
-            "error": "Request timeout. Please try again or use 'Search by Name' instead."
-        }
-    except requests.RequestException as e:
-        logger.error(f"Network error during barcode lookup: {e}")
-        return {
-            "success": False,
-            "error": "Network error. Please check your connection and try again."
+            "checkins": [
+                {
+                    "week_number": c.week_number,
+                    "date": c.checkin_date.isoformat(),
+                    "weight_kg": c.current_weight_kg,
+                    "weight_change_kg": c.weight_change_kg,
+                    "diet_adherence": c.diet_adherence_percent,
+                    "exercise_adherence": c.exercise_adherence_percent,
+                    "energy_level": c.energy_level,
+                    "hunger_level": c.hunger_level,
+                    "insights": json.loads(c.ai_insights_json) if c.ai_insights_json else {},
+                    "adjusted_calories": c.adjusted_calories
+                }
+                for c in checkins
+            ],
+            "snapshots": [
+                {
+                    "date": s.snapshot_date.isoformat(),
+                    "weight_kg": s.weight_kg,
+                    "total_change_kg": s.total_weight_change_kg,
+                    "avg_weekly_change_kg": s.avg_weekly_change_kg,
+                    "weeks_on_plan": s.weeks_on_plan,
+                    "trend": s.weight_trend,
+                    "is_plateau": s.is_plateau
+                }
+                for s in snapshots
+            ],
+            "calorie_adjustments": [
+                {
+                    "date": a.adjustment_date.isoformat(),
+                    "previous_calories": a.previous_calories,
+                    "new_calories": a.new_calories,
+                    "adjustment_amount": a.adjustment_amount,
+                    "reason": a.reason,
+                    "explanation": a.ai_explanation
+                }
+                for a in calorie_adjustments
+            ]
         }
     except Exception as e:
-        logger.error(f"Barcode scan error: {e}")
-        return {
-            "success": False,
-            "error": f"Error scanning barcode: {str(e)}. Please try 'Search by Name' instead."
-        }
+        logger.error(f"Progress history error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch progress: {str(e)}")
 
-# --- PRODUCT SEARCH ENDPOINT (for products without barcode) ---
-
-class ProductSearchRequest(BaseModel):
-    search_query: str
-    user_diet_preference: Optional[str] = None
-    user_goal: Optional[str] = None
-
-@app.post("/search-product")
-async def search_product(request: ProductSearchRequest):
+@app.post("/adaptive-calorie-adjustment/{plan_id}")
+async def trigger_adaptive_adjustment(
+    plan_id: int,
+    manual_adjustment: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
     """
-    Search for products by name in Open Food Facts database.
-    For products without barcodes or when barcode scan fails.
+    Adaptive Calorie Agent: Analyzes progress data and suggests calorie adjustments.
+    Can be triggered manually or automatically by weekly check-in.
     """
     try:
-        search_query = request.search_query.strip()
+        plan = db.query(DietPlan).filter(DietPlan.id == plan_id).first()
+        if not plan:
+            raise HTTPException(status_code=404, detail="Diet plan not found")
 
-        # Search Open Food Facts by product name
-        search_url = "https://world.openfoodfacts.org/cgi/search.pl"
-        params = {
-            "search_terms": search_query,
-            "search_simple": 1,
-            "action": "process",
-            "json": 1,
-            "page_size": 10,
-            "fields": "product_name,brands,code,image_url,nutriments,quantity"
-        }
+        # Get latest progress snapshot
+        latest_snapshot = db.query(ProgressSnapshot).filter(
+            ProgressSnapshot.diet_plan_id == plan_id
+        ).order_by(ProgressSnapshot.snapshot_date.desc()).first()
 
-        response = requests.get(search_url, params=params, timeout=10)
-        data = response.json()
+        if not latest_snapshot:
+            raise HTTPException(status_code=404, detail="No progress data found. Complete a check-in first.")
 
-        if not data.get("products") or len(data["products"]) == 0:
-            return {
-                "success": False,
-                "error": "No products found. Try a different search term."
-            }
+        # Get current calorie target
+        plan_json = json.loads(plan.plan_json) if isinstance(plan.plan_json, str) else plan.plan_json
+        current_calories = plan_json.get('nutrition_targets', {}).get('calories_range', '1800-1900')
+        current_calories_mid = int(current_calories.split('-')[0]) + 50
 
-        # Return list of matching products
-        results = []
-        for product in data["products"][:5]:  # Top 5 results
-            results.append({
-                "name": product.get("product_name", "Unknown"),
-                "brand": product.get("brands", "Unknown"),
-                "barcode": product.get("code", ""),
-                "image_url": product.get("image_url", ""),
-                "quantity": product.get("quantity", "N/A")
-            })
+        # Determine adjustment
+        if manual_adjustment:
+            adjusted_calories = current_calories_mid + manual_adjustment
+            reason = 'user_request'
+            explanation = f"Manual adjustment of {manual_adjustment:+d} kcal requested by user."
+        else:
+            # AI-driven adjustment based on trend analysis
+            if latest_snapshot.is_plateau:
+                adjustment = -100  # Reduce by 100 kcal
+                reason = 'plateau'
+                explanation = "Progress has plateaued. Reducing calories slightly to restart fat loss."
+            elif latest_snapshot.is_off_track and latest_snapshot.avg_weekly_change_kg < 0.2:
+                adjustment = -150
+                reason = 'slow_progress'
+                explanation = "Progress is slower than expected. Increasing calorie deficit moderately."
+            elif latest_snapshot.avg_weekly_change_kg > 1.0:
+                adjustment = +100
+                reason = 'too_fast'
+                explanation = "Weight loss is too rapid. Increasing calories to protect muscle mass."
+            else:
+                return {
+                    "success": True,
+                    "message": "No adjustment needed. Progress is on track!",
+                    "current_calories": current_calories_mid
+                }
+
+            adjusted_calories = current_calories_mid + adjustment
+
+        # Log adjustment
+        adjustment_log = CalorieAdjustmentLog(
+            user_id=plan.user_id,
+            diet_plan_id=plan_id,
+            previous_calories=current_calories_mid,
+            new_calories=adjusted_calories,
+            adjustment_amount=adjusted_calories - current_calories_mid,
+            reason=reason,
+            trigger_metric='adaptive_agent',
+            ai_explanation=explanation
+        )
+        db.add(adjustment_log)
+        db.commit()
+
+        logger.info(f"Adaptive calorie adjustment: {current_calories_mid} → {adjusted_calories} ({reason})")
 
         return {
             "success": True,
-            "results": results
+            "previous_calories": current_calories_mid,
+            "new_calories": adjusted_calories,
+            "adjustment_amount": adjusted_calories - current_calories_mid,
+            "reason": reason,
+            "explanation": explanation
         }
 
-    except requests.Timeout:
-        return {
-            "success": False,
-            "error": "Search timeout. Please try again."
-        }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Product search error: {e}")
+        logger.error(f"Adaptive calorie adjustment error: {e}")
+        raise HTTPException(status_code=500, detail=f"Adjustment failed: {str(e)}")
+
+# --- CONVERSATIONAL AI CHAT ENDPOINTS ---
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat_with_ai(request: ChatRequest):
+    """
+    Conversational AI endpoint for diet-related questions
+
+    Args:
+        request: ChatRequest with session_id, message, and optional context
+
+    Returns:
+        AI response with suggestions
+    """
+    try:
+        # Get or initialize chat agent
+        agent = get_chat_agent()
+
+        # Get AI response
+        ai_response = agent.chat(
+            session_id=request.session_id,
+            user_message=request.message,
+            context=request.context
+        )
+
+        # Get smart suggestions based on context
+        suggestions = agent.get_quick_suggestions(request.context)
+
+        logger.info(f"Chat session {request.session_id}: {len(request.message)} chars in, {len(ai_response)} chars out")
+
+        return ChatResponse(
+            success=True,
+            response=ai_response,
+            suggestions=suggestions
+        )
+
+    except Exception as e:
+        logger.error(f"Chat error: {e}")
+        return ChatResponse(
+            success=False,
+            response="Sorry, I'm having trouble responding right now. Please try again in a moment.",
+            suggestions=[]
+        )
+
+@app.get("/chat/history/{session_id}")
+async def get_chat_history(session_id: str):
+    """
+    Get conversation history for a session
+
+    Args:
+        session_id: Session identifier (user_id or plan_id)
+
+    Returns:
+        List of messages in the conversation
+    """
+    try:
+        agent = get_chat_agent()
+        history = agent.get_conversation_history(session_id)
+
         return {
-            "success": False,
-            "error": f"Error searching products: {str(e)}"
+            "success": True,
+            "session_id": session_id,
+            "messages": history
         }
+
+    except Exception as e:
+        logger.error(f"Error fetching chat history: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch chat history")
+
+@app.delete("/chat/history/{session_id}")
+async def clear_chat_history(session_id: str):
+    """
+    Clear conversation history for a session
+
+    Args:
+        session_id: Session identifier to clear
+
+    Returns:
+        Success confirmation
+    """
+    try:
+        agent = get_chat_agent()
+        cleared = agent.clear_session(session_id)
+
+        if cleared:
+            return {
+                "success": True,
+                "message": f"Chat history cleared for session {session_id}"
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"No chat history found for session {session_id}"
+            }
+
+    except Exception as e:
+        logger.error(f"Error clearing chat history: {e}")
+        raise HTTPException(status_code=500, detail="Failed to clear chat history")
 
 # --- 7. RUN INSTRUCTION ---
 if __name__ == "__main__":

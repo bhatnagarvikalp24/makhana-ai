@@ -1,11 +1,12 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ShoppingCart, ArrowLeft, Loader2, Save, X, Stethoscope, Download, ShieldCheck, RefreshCw, Play, TrendingUp, ScanBarcode } from 'lucide-react';
+import { ShoppingCart, ArrowLeft, Loader2, Save, X, Stethoscope, Download, ShieldCheck, RefreshCw, Play, TrendingUp, Activity } from 'lucide-react';
 import { useState } from 'react';
 import axios from 'axios';
 import html2pdf from 'html2pdf.js';
 import toast from 'react-hot-toast'; // <--- 1. IMPORT TOAST
 import { generateGrocery } from '../components/api';
-import BarcodeScanner from '../components/BarcodeScanner';
+import WeeklyCheckIn from '../components/WeeklyCheckIn';
+import ChatAssistant from '../components/ChatAssistant';
 
 const API_URL = import.meta.env.DEV ? 'http://localhost:8000' : 'https://makhana-ai.onrender.com';
 
@@ -30,8 +31,43 @@ export default function Dashboard() {
   const [videoLoading, setVideoLoading] = useState(false);
   const [currentVideo, setCurrentVideo] = useState(null);
 
-  // Barcode Scanner Modal State
-  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
+  // Weekly Check-In Modal State
+  const [showCheckInModal, setShowCheckInModal] = useState(false);
+
+  // Check if plan is saved (from state or localStorage)
+  const getSavedPlanInfo = () => {
+    // Priority 1: Check if coming from PlanList (has planId in state)
+    if (state?.planId) {
+      return { planId: state.planId, userId: state.userId, isSaved: true };
+    }
+
+    // Priority 2: Check localStorage
+    const saved = localStorage.getItem('savedPlan');
+    if (saved) {
+      try {
+        const parsedData = JSON.parse(saved);
+        return { ...parsedData, isSaved: true };
+      } catch {
+        return { isSaved: false };
+      }
+    }
+
+    return { isSaved: false };
+  };
+
+  const savedPlanInfo = getSavedPlanInfo();
+
+  const handleCheckInClick = () => {
+    if (!savedPlanInfo.isSaved) {
+      toast.error('Please save your plan first to use check-ins!', {
+        icon: '💾',
+        duration: 4000
+      });
+      setShowSaveModal(true); // Auto-open save modal
+      return;
+    }
+    setShowCheckInModal(true);
+  };
 
   // SAFETY CHECKS
   if (!state?.plan) {
@@ -122,14 +158,30 @@ export default function Dashboard() {
     const savingToast = toast.loading("Saving your plan...");
 
     try {
-        await axios.post(`${API_URL}/save-plan`, {
+        const response = await axios.post(`${API_URL}/save-plan`, {
             user_id: state.userId || state.plan?.user_id,
             phone: phone,
-            title: planTitle
+            title: planTitle,
+            plan_json: JSON.stringify(state.plan),
+            grocery_json: state.grocery ? JSON.stringify(state.grocery) : null
         });
+
         setSaveStatus('success');
         toast.dismiss(savingToast);
         toast.success("Plan Saved Permanently! 💾"); // Success toast
+
+        // Store plan info in localStorage for check-in access
+        localStorage.setItem('savedPlan', JSON.stringify({
+            planId: response.data.plan_id,
+            userId: response.data.user_id,
+            phone: phone,
+            title: planTitle,
+            savedAt: new Date().toISOString()
+        }));
+
+        // Update state with planId for immediate check-in access
+        state.planId = response.data.plan_id;
+        state.userId = response.data.user_id;
 
         setTimeout(() => setShowSaveModal(false), 2000);
     } catch (error) {
@@ -260,12 +312,17 @@ export default function Dashboard() {
                 </button>
 
                 <button
-                    onClick={() => setShowBarcodeScanner(true)}
-                    className="px-3 md:px-4 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 text-xs md:text-sm font-medium shadow-sm"
-                    title="Scan Barcode"
+                    onClick={handleCheckInClick}
+                    className={`px-3 md:px-4 py-2.5 rounded-lg transition flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 text-xs md:text-sm font-medium shadow-sm ${
+                      savedPlanInfo.isSaved
+                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700'
+                        : 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
+                    }`}
+                    title={savedPlanInfo.isSaved ? "Weekly Check-In" : "Save plan first to use check-ins"}
                 >
-                    <ScanBarcode size={16} className="md:w-4 md:h-4"/>
-                    <span className="md:inline">Scan</span>
+                    <Activity size={16} className="md:w-4 md:h-4"/>
+                    <span className="md:inline">{savedPlanInfo.isSaved ? 'Check-In' : 'Check-In'}</span>
+                    {!savedPlanInfo.isSaved && <span className="text-[10px] hidden md:inline">(Save first)</span>}
                 </button>
               </div>
             </div>
@@ -698,7 +755,8 @@ export default function Dashboard() {
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 relative my-8">
             <button
               onClick={() => setShowSwapModal(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+              title="Close"
             >
               <X size={20} />
             </button>
@@ -709,6 +767,14 @@ export default function Dashboard() {
               </div>
               <h3 className="text-xl font-bold text-gray-800">Swap This Meal</h3>
               <p className="text-gray-500 text-sm mt-1">Current: {currentSwapMeal.text}</p>
+
+              {/* Back Button */}
+              <button
+                onClick={() => setShowSwapModal(false)}
+                className="mt-3 inline-flex items-center text-gray-600 hover:text-green-600 text-sm font-medium transition-colors"
+              >
+                <ArrowLeft size={16} className="mr-1" /> Back to Diet Plan
+              </button>
             </div>
 
             {swapLoading ? (
@@ -858,14 +924,30 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* --- BARCODE SCANNER MODAL --- */}
-      {showBarcodeScanner && (
-        <BarcodeScanner
-          onClose={() => setShowBarcodeScanner(false)}
-          userDiet={state.plan?.diet_preference || 'Not specified'}
-          userGoal={state.plan?.goal || 'Not specified'}
+      {/* --- WEEKLY CHECK-IN MODAL --- */}
+      {showCheckInModal && savedPlanInfo.isSaved && (
+        <WeeklyCheckIn
+          planId={savedPlanInfo.planId}
+          onClose={() => setShowCheckInModal(false)}
+          onSuccess={(results) => {
+            console.log('Check-in completed:', results);
+            toast.success(`Week ${results.week_number} check-in saved! 🎉`);
+          }}
         />
       )}
+
+      {/* --- AI CHAT ASSISTANT --- */}
+      <ChatAssistant
+        sessionId={String(savedPlanInfo.planId || state.userId || 'guest')}
+        userContext={{
+          goal: state.plan?.summary || '',
+          daily_calories: state.plan?.daily_targets?.calories || '',
+          dietary_preferences: state.plan?.diet_type || '',
+          current_weight: state.plan?.current_weight || '',
+          target_weight: state.plan?.target_weight || '',
+          medical_issues: state.plan?.medical_issues || 'None'
+        }}
+      />
 
       </div>
     </div>

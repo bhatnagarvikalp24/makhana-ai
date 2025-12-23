@@ -78,9 +78,41 @@ export default function UserForm() {
   };
 
   const handleSubmit = async () => {
-    // 1. VALIDATION
+    // 1. BASIC VALIDATION
     if (!formData.name || !formData.age || !formData.height || !formData.weight) {
         toast.error("Please fill in all details (Name, Age, Height, Weight).");
+        return;
+    }
+
+    // 2. REALISTIC VALUE VALIDATION
+    const age = parseInt(formData.age);
+    const weight = parseFloat(formData.weight);
+    const height = parseFloat(formData.height);
+
+    // Age validation (5-120 years)
+    if (age < 5 || age > 120) {
+        toast.error("Please enter a valid age between 5 and 120 years.");
+        return;
+    }
+
+    // Weight validation (20-300 kg)
+    if (weight < 20 || weight > 300) {
+        toast.error("Please enter a valid weight between 20 and 300 kg.");
+        return;
+    }
+
+    // Height validation (50-250 cm)
+    if (height < 50 || height > 250) {
+        toast.error("Please enter a valid height between 50 and 250 cm.");
+        return;
+    }
+
+    // BMI sanity check (extreme values)
+    const heightInMeters = height / 100;
+    const bmi = weight / (heightInMeters * heightInMeters);
+
+    if (bmi < 10 || bmi > 80) {
+        toast.error("The height and weight combination seems unusual. Please verify your inputs.");
         return;
     }
 
@@ -179,8 +211,11 @@ export default function UserForm() {
         <div className="grid grid-cols-4 gap-4">
              <div className="space-y-2 col-span-2 md:col-span-1">
                 <label className="text-sm font-bold text-gray-700">Age</label>
-                <input 
-                    type="number" 
+                <input
+                    type="number"
+                    min="5"
+                    max="120"
+                    step="1"
                     className="w-full p-3 border border-gray-200 rounded-lg outline-none"
                     placeholder="25"
                     onChange={e => setFormData({...formData, age: e.target.value})}
@@ -188,18 +223,45 @@ export default function UserForm() {
             </div>
              <div className="space-y-2 col-span-2 md:col-span-1">
                 <label className="text-sm font-bold text-gray-700">Gender</label>
-                <select className="w-full p-3 border rounded-lg bg-white" onChange={e => setFormData({...formData, gender: e.target.value})}>
+                <select
+                    className="w-full p-3 border rounded-lg bg-white"
+                    value={formData.gender}
+                    onChange={e => {
+                        const newGender = e.target.value;
+                        setFormData({...formData, gender: newGender});
+                        // Clear PCOD/PCOS if changing to Male
+                        if (newGender === 'Male' && medicalConditions.pcod) {
+                            setMedicalConditions({...medicalConditions, pcod: false});
+                        }
+                    }}
+                >
                     <option>Male</option>
                     <option>Female</option>
                 </select>
             </div>
             <div className="space-y-2 col-span-2 md:col-span-1">
                 <label className="text-sm font-bold text-gray-700">Height (cm)</label>
-                <input type="number" placeholder="170" className="w-full p-3 border rounded-lg" onChange={e => setFormData({...formData, height: e.target.value})} />
+                <input
+                    type="number"
+                    min="50"
+                    max="250"
+                    step="0.1"
+                    placeholder="170"
+                    className="w-full p-3 border rounded-lg"
+                    onChange={e => setFormData({...formData, height: e.target.value})}
+                />
             </div>
              <div className="space-y-2 col-span-2 md:col-span-1">
                 <label className="text-sm font-bold text-gray-700">Weight (kg)</label>
-                <input type="number" placeholder="70" className="w-full p-3 border rounded-lg" onChange={e => setFormData({...formData, weight: e.target.value})} />
+                <input
+                    type="number"
+                    min="20"
+                    max="300"
+                    step="0.1"
+                    placeholder="70"
+                    className="w-full p-3 border rounded-lg"
+                    onChange={e => setFormData({...formData, weight: e.target.value})}
+                />
             </div>
         </div>
 
@@ -320,10 +382,16 @@ export default function UserForm() {
             </h3>
             <p className="text-sm text-purple-700 mb-4">
                 Select any conditions you have. We'll adjust your diet accordingly.
+                {formData.gender === 'Female' && (
+                    <span className="block mt-1 text-xs text-purple-600">
+                        💡 Female-specific conditions like PCOD/PCOS are available below.
+                    </span>
+                )}
             </p>
 
-            {/* Quick Select Common Conditions */}
+            {/* Quick Select Common Conditions - Gender-specific filtering */}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                {/* Common conditions for all genders */}
                 <label className="flex items-center space-x-2 bg-white p-3 rounded-lg border border-purple-100 cursor-pointer hover:bg-purple-50 transition">
                     <input
                         type="checkbox"
@@ -344,15 +412,18 @@ export default function UserForm() {
                     <span className="text-sm font-medium text-gray-700">Thyroid Issues</span>
                 </label>
 
-                <label className="flex items-center space-x-2 bg-white p-3 rounded-lg border border-purple-100 cursor-pointer hover:bg-purple-50 transition">
-                    <input
-                        type="checkbox"
-                        checked={medicalConditions.pcod}
-                        onChange={e => setMedicalConditions({...medicalConditions, pcod: e.target.checked})}
-                        className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
-                    />
-                    <span className="text-sm font-medium text-gray-700">PCOD / PCOS</span>
-                </label>
+                {/* PCOD/PCOS - Only show for Female */}
+                {formData.gender === 'Female' && (
+                    <label className="flex items-center space-x-2 bg-white p-3 rounded-lg border border-purple-100 cursor-pointer hover:bg-purple-50 transition">
+                        <input
+                            type="checkbox"
+                            checked={medicalConditions.pcod}
+                            onChange={e => setMedicalConditions({...medicalConditions, pcod: e.target.checked})}
+                            className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                        />
+                        <span className="text-sm font-medium text-gray-700">PCOD / PCOS</span>
+                    </label>
+                )}
 
                 <label className="flex items-center space-x-2 bg-white p-3 rounded-lg border border-purple-100 cursor-pointer hover:bg-purple-50 transition">
                     <input
