@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, UploadCloud, FileText, AlertCircle, ArrowLeft, Lock, Target, Stethoscope } from 'lucide-react';
-import toast from 'react-hot-toast'; // <--- 1. IMPORT TOAST
+import toast from 'react-hot-toast';
 import { generateDiet, uploadReport } from '../components/api';
+import { validateFormData, calculateBMI } from '../utils/healthValidation';
+import PlanGenerationLoader from '../components/PlanGenerationLoader';
 
 export default function UserForm() {
   const navigate = useNavigate();
@@ -116,9 +118,61 @@ export default function UserForm() {
         return;
     }
 
+    // 3. COMPREHENSIVE EDGE CASE VALIDATION
+    const validationResults = validateFormData(formData, medicalConditions);
+
+    // Check for critical errors first
+    const errors = validationResults.filter(v => v.type === 'error');
+    if (errors.length > 0) {
+        // Show first critical error
+        const error = errors[0];
+        toast.error(error.message, { duration: 6000 });
+
+        // If there's a suggested goal, offer to change it
+        if (error.suggestion) {
+            const bmiInfo = calculateBMI(weight, height);
+            toast((t) => (
+                <div>
+                    <p className="font-semibold mb-2">Current BMI: {bmiInfo.bmi} ({bmiInfo.classification})</p>
+                    <p className="text-sm mb-3">Consider changing your goal to: <strong>{error.suggestion}</strong></p>
+                    <button
+                        onClick={() => {
+                            setFormData({...formData, goal: error.suggestion});
+                            toast.dismiss(t.id);
+                            toast.success(`Goal changed to ${error.suggestion}`);
+                        }}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm mr-2"
+                    >
+                        Change Goal
+                    </button>
+                    <button
+                        onClick={() => toast.dismiss(t.id)}
+                        className="bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            ), { duration: 10000 });
+        }
+        return;
+    }
+
+    // Show warnings but allow to proceed
+    const warnings = validationResults.filter(v => v.type === 'warning');
+    if (warnings.length > 0) {
+        for (const warning of warnings) {
+            toast(warning.warning || warning.message, {
+                icon: '⚠️',
+                duration: 5000,
+                style: {
+                    background: '#FEF3C7',
+                    color: '#92400E'
+                }
+            });
+        }
+    }
+
     setLoading(true);
-    // 2. LOADING TOAST
-    const loadingToast = toast.loading("AI is generating your personalized plan...");
 
     try {
       const guestId = `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -151,26 +205,29 @@ export default function UserForm() {
       };
 
       const res = await generateDiet(profile);
-      
-      // 3. SUCCESS TOAST & DISMISS LOADING
-      toast.dismiss(loadingToast);
+
+      // 3. SUCCESS - Navigate to dashboard
       toast.success("Plan Generated Successfully! 🎉");
 
-      navigate('/plan', { 
-        state: { 
-            plan: res.data.diet, 
-            planId: res.data.plan_id, 
-            userId: res.data.user_id 
-        } 
+      navigate('/plan', {
+        state: {
+            plan: res.data.diet,
+            planId: res.data.plan_id,
+            userId: res.data.user_id
+        }
       });
-      
+
     } catch (error) {
       console.error(error);
-      toast.dismiss(loadingToast); // Dismiss loading on error too
-      toast.error("Error generating plan. Check backend console.");
+      toast.error("Error generating plan. Please try again.");
     }
     setLoading(false);
   };
+
+  // Show loading screen when generating plan
+  if (loading) {
+    return <PlanGenerationLoader userName={formData.name} />;
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-green-50 to-white">
