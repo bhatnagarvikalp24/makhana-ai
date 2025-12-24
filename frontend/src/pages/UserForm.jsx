@@ -5,12 +5,17 @@ import toast from 'react-hot-toast';
 import { generateDiet, uploadReport } from '../components/api';
 import { validateFormData, calculateBMI } from '../utils/healthValidation';
 import PlanGenerationLoader from '../components/PlanGenerationLoader';
+import HealthAdvisoryModal from '../components/HealthAdvisoryModal';
 
 export default function UserForm() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  
+
+  // Health advisory modal state
+  const [showAdvisory, setShowAdvisory] = useState(false);
+  const [advisoryData, setAdvisoryData] = useState(null);
+
   // Medical conditions state
   const [medicalConditions, setMedicalConditions] = useState({
     diabetes: false,
@@ -27,6 +32,7 @@ export default function UserForm() {
     gender: 'Male',
     height: '',
     weight: '',
+    target_weight: '', // Target Weight Goal - MANDATORY
     goal: 'Weight Loss',
     goal_pace: 'balanced', // New field: conservative, balanced, rapid
     cuisine: 'North Indian',
@@ -81,8 +87,8 @@ export default function UserForm() {
 
   const handleSubmit = async () => {
     // 1. BASIC VALIDATION
-    if (!formData.name || !formData.age || !formData.height || !formData.weight) {
-        toast.error("Please fill in all details (Name, Age, Height, Weight).");
+    if (!formData.name || !formData.age || !formData.height || !formData.weight || !formData.target_weight) {
+        toast.error("Please fill in all required details (Name, Age, Height, Weight, Target Weight).");
         return;
     }
 
@@ -119,6 +125,28 @@ export default function UserForm() {
     }
 
     // 3. COMPREHENSIVE EDGE CASE VALIDATION
+    // First, validate the "other" medical condition field for gender-specific terms
+    if (medicalConditions.other && medicalConditions.other.trim()) {
+        const { validateMedicalConditionsForGender } = await import('../utils/healthValidation');
+        const otherConditionValidation = validateMedicalConditionsForGender(
+            formData.gender,
+            medicalConditions.other
+        );
+
+        if (!otherConditionValidation.valid) {
+            // Show beautiful modal for gender-medical mismatch
+            const currentBMI = calculateBMI(weight, height);
+            setAdvisoryData({
+                bmiInfo: currentBMI,
+                currentGoal: formData.goal,
+                message: otherConditionValidation.message,
+                isGenderMedicalError: true
+            });
+            setShowAdvisory(true);
+            return;
+        }
+    }
+
     const validationResults = validateFormData(formData, medicalConditions);
 
     // Check for critical errors first
@@ -126,33 +154,42 @@ export default function UserForm() {
     if (errors.length > 0) {
         // Show first critical error
         const error = errors[0];
-        toast.error(error.message, { duration: 6000 });
 
-        // If there's a suggested goal, offer to change it
+        // If there's a suggested goal, show beautiful modal
         if (error.suggestion) {
             const bmiInfo = calculateBMI(weight, height);
-            toast((t) => (
-                <div>
-                    <p className="font-semibold mb-2">Current BMI: {bmiInfo.bmi} ({bmiInfo.classification})</p>
-                    <p className="text-sm mb-3">Consider changing your goal to: <strong>{error.suggestion}</strong></p>
-                    <button
-                        onClick={() => {
-                            setFormData({...formData, goal: error.suggestion});
-                            toast.dismiss(t.id);
-                            toast.success(`Goal changed to ${error.suggestion}`);
-                        }}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm mr-2"
-                    >
-                        Change Goal
-                    </button>
-                    <button
-                        onClick={() => toast.dismiss(t.id)}
-                        className="bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm"
-                    >
-                        Cancel
-                    </button>
-                </div>
-            ), { duration: 10000 });
+            setAdvisoryData({
+                bmiInfo,
+                currentGoal: formData.goal,
+                suggestedGoal: error.suggestion,
+                message: error.message
+            });
+            setShowAdvisory(true);
+        } else if (error.field === 'target_weight') {
+            // Target weight validation errors - show in beautiful modal
+            const currentBMI = calculateBMI(weight, height);
+            const targetBMI = formData.target_weight ? calculateBMI(parseFloat(formData.target_weight), height) : null;
+
+            setAdvisoryData({
+                bmiInfo: currentBMI,
+                targetBMI: targetBMI,
+                currentWeight: weight,
+                targetWeight: formData.target_weight ? parseFloat(formData.target_weight) : null,
+                currentGoal: formData.goal,
+                message: error.message,
+                isTargetWeightError: true
+            });
+            setShowAdvisory(true);
+        } else {
+            // For other errors without suggestion, show toast
+            toast.error(error.message, {
+                duration: 6000,
+                icon: '⚠️',
+                style: {
+                    borderLeft: '4px solid #EF4444',
+                    padding: '16px',
+                }
+            });
         }
         return;
     }
@@ -162,11 +199,16 @@ export default function UserForm() {
     if (warnings.length > 0) {
         for (const warning of warnings) {
             toast(warning.warning || warning.message, {
-                icon: '⚠️',
-                duration: 5000,
+                icon: '💡',
+                duration: 7000,
                 style: {
-                    background: '#FEF3C7',
-                    color: '#92400E'
+                    background: 'linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%)',
+                    color: '#92400E',
+                    border: '2px solid #F59E0B',
+                    borderRadius: '12px',
+                    padding: '16px',
+                    fontWeight: '500',
+                    boxShadow: '0 10px 25px rgba(245, 158, 11, 0.2)'
                 }
             });
         }
@@ -195,6 +237,7 @@ export default function UserForm() {
         gender: formData.gender,
         height_cm: parseFloat(formData.height),
         weight_kg: parseFloat(formData.weight),
+        target_weight_kg: parseFloat(formData.target_weight), // Target Weight - MANDATORY
         goal: formData.goal,
         goal_pace: formData.goal_pace, // New field
         diet_pref: formData.type,
@@ -230,15 +273,41 @@ export default function UserForm() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-green-50 to-white">
-      <div className="max-w-2xl mx-auto py-10 px-4">
+    <>
+      {/* Health Advisory Modal */}
+      {advisoryData && (
+        <HealthAdvisoryModal
+          isOpen={showAdvisory}
+          onClose={() => setShowAdvisory(false)}
+          bmiInfo={advisoryData.bmiInfo}
+          targetBMI={advisoryData.targetBMI}
+          currentWeight={advisoryData.currentWeight}
+          targetWeight={advisoryData.targetWeight}
+          currentGoal={advisoryData.currentGoal}
+          suggestedGoal={advisoryData.suggestedGoal}
+          message={advisoryData.message}
+          isTargetWeightError={advisoryData.isTargetWeightError}
+          isGenderMedicalError={advisoryData.isGenderMedicalError}
+          onChangeGoal={() => {
+            setFormData({...formData, goal: advisoryData.suggestedGoal});
+            setShowAdvisory(false);
+            toast.success(`Goal changed to ${advisoryData.suggestedGoal}`, {
+              icon: '✅',
+              duration: 3000
+            });
+          }}
+        />
+      )}
 
-        <button
-          onClick={() => navigate('/')}
-          className="flex items-center text-gray-500 hover:text-green-600 mb-6 transition-all duration-300 hover:translate-x-1 group"
-        >
-          <ArrowLeft size={20} className="mr-2 group-hover:-translate-x-1 transition-transform"/> Back to Home
-        </button>
+      <div className="min-h-screen bg-gradient-to-b from-green-50 to-white">
+        <div className="max-w-2xl mx-auto py-10 px-4">
+
+          <button
+            onClick={() => navigate('/')}
+            className="flex items-center text-gray-500 hover:text-green-600 mb-6 transition-all duration-300 hover:translate-x-1 group"
+          >
+            <ArrowLeft size={20} className="mr-2 group-hover:-translate-x-1 transition-transform"/> Back to Home
+          </button>
 
         <div className="text-center mb-8 animate-fade-in">
           <h2 className="text-4xl font-extrabold mb-3 text-gray-800">Build Your Plan</h2>
@@ -320,6 +389,26 @@ export default function UserForm() {
                     onChange={e => setFormData({...formData, weight: e.target.value})}
                 />
             </div>
+        </div>
+
+        {/* Target Weight - MANDATORY */}
+        <div className="space-y-2 bg-gradient-to-br from-blue-50 to-purple-50 p-5 rounded-xl border border-blue-100">
+            <label className="text-sm font-bold text-gray-800 flex items-center">
+                <Target size={16} className="mr-1 text-blue-600"/> Target Weight (kg) <span className="text-red-500 ml-1">*</span>
+            </label>
+            <p className="text-xs text-gray-600 mb-2">
+                This is the weight you want to reach. Your calories, protein, meals, and activity plan will be designed around this goal.
+            </p>
+            <input
+                type="number"
+                min="20"
+                max="300"
+                step="0.1"
+                placeholder="65"
+                className="w-full p-3 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-300"
+                value={formData.target_weight}
+                onChange={e => setFormData({...formData, target_weight: e.target.value})}
+            />
         </div>
 
         {/* --- GOAL SELECTION --- */}
@@ -583,7 +672,8 @@ export default function UserForm() {
           )}
         </button>
         </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

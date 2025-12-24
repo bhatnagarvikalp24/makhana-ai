@@ -187,12 +187,125 @@ export const validateCalorieTarget = (currentWeight, targetCalories, goal) => {
 };
 
 /**
+ * Validate target weight realism and safety
+ */
+export const validateTargetWeight = (currentWeight, targetWeight, height, age, goal) => {
+  const weightDiff = targetWeight - currentWeight;
+  const currentBMI = calculateBMI(currentWeight, height);
+  const targetBMI = calculateBMI(targetWeight, height);
+
+  const currentBMIValue = parseFloat(currentBMI.bmi);
+  const targetBMIValue = parseFloat(targetBMI.bmi);
+
+  // 1. Check if target weight is same as current
+  if (Math.abs(weightDiff) < 1) {
+    return {
+      valid: false,
+      message: `Your target weight (${targetWeight}kg) is almost the same as your current weight (${currentWeight}kg). Please set a meaningful target or choose "Balanced Diet" goal.`
+    };
+  }
+
+  // 2. Check goal consistency with target weight
+  if (goal === 'Weight Loss' && weightDiff > 0) {
+    return {
+      valid: false,
+      message: `You selected "Weight Loss" but your target weight (${targetWeight}kg) is higher than your current weight (${currentWeight}kg). Either change your goal to "Weight Gain" or adjust your target weight.`
+    };
+  }
+
+  if ((goal === 'Weight Gain' || goal === 'Muscle Gain') && weightDiff < 0) {
+    return {
+      valid: false,
+      message: `You selected "${goal}" but your target weight (${targetWeight}kg) is lower than your current weight (${currentWeight}kg). Either change your goal to "Weight Loss" or adjust your target weight.`
+    };
+  }
+
+  // 3. Check if target BMI is unsafe (too low)
+  if (targetBMIValue < 16) {
+    return {
+      valid: false,
+      message: `Your target weight would result in a severely underweight BMI of ${targetBMI.bmi} (${targetBMI.classification}). This is medically unsafe. Please set a higher target weight (minimum BMI 18.5 recommended).`
+    };
+  }
+
+  // 4. Check if target BMI is unsafe (too high)
+  if (targetBMIValue >= 35 && weightDiff > 0) {
+    return {
+      valid: false,
+      message: `Your target weight would result in BMI ${targetBMI.bmi} (${targetBMI.classification}). Gaining to this weight is not recommended for health reasons. Please set a lower target weight.`
+    };
+  }
+
+  // 5. Check if weight change is too aggressive
+  const maxSafeWeeklyLoss = age >= 65 ? 0.4 : age >= 60 ? 0.6 : 1.0; // kg/week
+  const maxSafeWeeklyGain = age >= 65 ? 0.3 : age >= 60 ? 0.5 : 0.75; // kg/week
+
+  const absoluteWeightChange = Math.abs(weightDiff);
+
+  // Estimate minimum safe duration
+  let minWeeks;
+  if (weightDiff < 0) {
+    // Weight loss
+    minWeeks = Math.ceil(absoluteWeightChange / maxSafeWeeklyLoss);
+  } else {
+    // Weight gain
+    minWeeks = Math.ceil(absoluteWeightChange / maxSafeWeeklyGain);
+  }
+
+  // If change requires more than 52 weeks (1 year), warn
+  if (minWeeks > 52) {
+    const months = Math.ceil(minWeeks / 4);
+    return {
+      valid: true,
+      warning: `Your target weight requires a ${absoluteWeightChange}kg change, which will take approximately ${months} months to achieve safely. We'll design a sustainable long-term plan for you.`
+    };
+  }
+
+  // 6. Age-specific warnings for aggressive targets
+  if (age >= 65) {
+    if (absoluteWeightChange > 10) {
+      return {
+        valid: true,
+        warning: `At age ${age}, changing weight by ${absoluteWeightChange}kg requires careful planning. We'll design a gentle, sustainable approach that prioritizes your health and energy levels.`
+      };
+    }
+  }
+
+  return { valid: true };
+};
+
+/**
  * Comprehensive pre-submission validation
  */
 export const validateFormData = (formData, medicalConditions) => {
   const validations = [];
 
-  // 1. BMI and goal validation
+  // 1. Target weight validation (PRIORITY CHECK)
+  if (formData.target_weight) {
+    const targetWeightValidation = validateTargetWeight(
+      parseFloat(formData.weight),
+      parseFloat(formData.target_weight),
+      parseFloat(formData.height),
+      parseInt(formData.age),
+      formData.goal
+    );
+
+    if (!targetWeightValidation.valid) {
+      validations.push({
+        type: 'error',
+        field: 'target_weight',
+        ...targetWeightValidation
+      });
+    } else if (targetWeightValidation.warning) {
+      validations.push({
+        type: 'warning',
+        field: 'target_weight',
+        ...targetWeightValidation
+      });
+    }
+  }
+
+  // 2. BMI and goal validation
   const weightGoalValidation = validateWeightGoalCombination(
     parseFloat(formData.weight),
     parseFloat(formData.height),

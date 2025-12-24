@@ -348,6 +348,7 @@ class UserProfile(BaseModel):
     gender: str
     height_cm: float
     weight_kg: float
+    target_weight_kg: float  # Target Weight Goal - MANDATORY
     goal: str
     goal_pace: str = "balanced"  # New field: conservative, balanced, rapid
     diet_pref: str
@@ -608,6 +609,7 @@ Your task is to generate **goal-oriented, medically-aware, and outcome-driven di
 - **Name:** {profile.name}
 - **Age:** {profile.age} years, **Gender:** {profile.gender}
 - **Current Stats:** {profile.height_cm}cm, {profile.weight_kg}kg
+- **Target Weight:** {profile.target_weight_kg}kg (Weight Change: {profile.target_weight_kg - profile.weight_kg:+.1f}kg)
 - **Goal:** {profile.goal}
 - **Goal Pace:** {profile.goal_pace} (conservative/balanced/rapid)
 - **Diet Preference:** {profile.diet_pref}
@@ -616,9 +618,50 @@ Your task is to generate **goal-oriented, medically-aware, and outcome-driven di
 
 ---
 
+### 🔸 TARGET WEIGHT GOAL SYSTEM (MANDATORY - NEW CORE FEATURE)
+
+**CRITICAL:** The user has specified a TARGET WEIGHT of **{profile.target_weight_kg}kg** (current: {profile.weight_kg}kg).
+
+**Weight Change Required:** {abs(profile.target_weight_kg - profile.weight_kg):.1f}kg {"loss" if profile.target_weight_kg < profile.weight_kg else "gain"}
+
+**This target weight is a HARD CONSTRAINT and PRIMARY CONTROL VARIABLE. ALL calculations must:**
+1. ✅ Be designed to reach this target weight safely
+2. ✅ Calculate realistic timeline based on age and goal_pace
+3. ✅ Adjust weekly rate if target is too aggressive
+4. ✅ Maintain nutrition quality (calories, protein, macros) while reaching target
+5. ✅ Clearly explain timeline and expectations in Goal Summary
+
+**TIMELINE CALCULATION (INTERNAL - DO NOT EXPOSE FORMULAS):**
+
+Calculate safe weekly rate:
+- **Age < 60:**
+  - Weight Loss: conservative=0.25-0.4kg/week, balanced=0.5-0.75kg/week, rapid=0.75-1kg/week
+  - Weight Gain: conservative=0.2-0.3kg/week, balanced=0.25-0.5kg/week, rapid=0.4-0.6kg/week
+- **Age 60-64:**
+  - Weight Loss: conservative=0.25-0.4kg/week, balanced=0.4-0.6kg/week (no rapid)
+  - Weight Gain: conservative=0.2-0.3kg/week, balanced=0.3-0.5kg/week (no rapid)
+- **Age 65+:**
+  - Weight Loss: conservative ONLY=0.2-0.4kg/week
+  - Weight Gain: conservative ONLY=0.15-0.3kg/week
+
+Calculate: `estimated_weeks = weight_change / weekly_rate`
+
+**If estimated timeline is unrealistic (>52 weeks), automatically:**
+- Adjust to a sustainable longer timeframe
+- Use conservative weekly rate
+- Explain in Goal Summary: "Your target is achievable over X months with a safe, sustainable approach"
+
+**VALIDATION BEFORE PROCEEDING:**
+- Is target weight medically safe? (BMI 16-35 range)
+- Is weekly rate appropriate for age?
+- Have I calculated a realistic timeline?
+- Does calorie deficit/surplus align with weekly rate?
+
+---
+
 ### 🔸 CRITICAL: CALCULATE PERSONALIZED METRICS (DO NOT USE TEMPLATES!)
 
-You MUST calculate the following based on the user's **actual stats, age, gender, and goal**. NO generic ranges!
+You MUST calculate the following based on the user's **actual stats, age, gender, target weight, and goal**. NO generic ranges!
 
 #### STEP 1: Calculate BMR (Basal Metabolic Rate)
 Use Mifflin-St Jeor Formula:
@@ -876,11 +919,27 @@ VERIFICATION: Before finalizing output, ask yourself:
 
 Your output must be **structured, refined, and complete**, not just a 7-day food list.
 
-#### 1️⃣ Goal Summary (Top Section)
-Briefly restate:
-- User's goal and why this plan supports it
+#### 1️⃣ Goal Summary (MANDATORY - Include Target Weight Timeline!)
+**CRITICAL:** ALWAYS start with the user's name: "{profile.name}, you're aiming to..."
+
+**You MUST include:**
+- Personalized greeting with user's name
+- Current weight → Target weight (weight change required)
+- Estimated timeline to reach target (in weeks/months based on safe weekly rate)
+- Why this plan supports reaching the target
 - Current body stats and nutritional focus (calorie deficit/surplus, protein optimization, sugar control, etc.)
 - Any medical adjustments made
+
+**Example formats:**
+- "{profile.name}, you're aiming to move from 83kg to 75kg (8kg loss). Based on your age and balanced approach, this can be achieved safely over 12-16 weeks."
+- "{profile.name}, your goal is to reach 65kg from 58kg (7kg gain). With a conservative approach suitable for your age, expect to reach this target in 20-25 weeks."
+- "{profile.name}, targeting 52kg from 45kg (7kg gain). At age 68, we'll take a gentle approach over 24-28 weeks to ensure sustainable, healthy progress."
+
+**DO NOT:**
+- Start without the user's name
+- Skip mentioning current → target weight
+- Provide vague timelines ("eventually", "in time")
+- Give unrealistic timelines (2kg loss in 1 week)
 
 #### 2️⃣ Daily Nutrition Targets (WITH EXPLANATIONS)
 **CRITICAL:** Use EXACT calculated values AND provide COACH-LIKE, CONFIDENCE-BUILDING explanations!
@@ -997,17 +1056,27 @@ Provide a **7-day plan** with:
 **Current user:** Age {profile.age}, Goal: {profile.goal}
 **→ Choose the appropriate guidance above based on BOTH age AND goal. DO NOT mix categories!**
 
-#### 6️⃣ Expected Results (Mandatory - Be Realistic & Age-Appropriate!)
-**CRITICAL:** Base on ACTUAL calculated calories and user's stats. NO templates! Adjust expectations for age.
+#### 6️⃣ Expected Results (MANDATORY - Target Weight Focused!)
+**CRITICAL:** All results must be tied to reaching the TARGET WEIGHT of {profile.target_weight_kg}kg.
 
-**Calculate weight change (AGE-SENSITIVE):**
+**User's Target:**
+- Current: {profile.weight_kg}kg
+- Target: {profile.target_weight_kg}kg
+- Change needed: {abs(profile.target_weight_kg - profile.weight_kg):.1f}kg {"loss" if profile.target_weight_kg < profile.weight_kg else "gain"}
+- Age: {profile.age}
+- Pace: {profile.goal_pace}
+
+**Calculate weight change (AGE-SENSITIVE & TARGET-ALIGNED):**
 - Calorie deficit of 500/day = ~0.5kg/week (younger adults)
 - Calorie deficit of 300-400/day = ~0.3-0.4kg/week (60-64 age group)
 - Calorie deficit of 200-300/day = ~0.2-0.3kg/week (65+ age group)
 - Surplus of 300-500/day = 0.25-0.5kg muscle gain/month
 
-**For this user:**
-Goal: {profile.goal}, Age: {profile.age}
+**You MUST calculate:**
+1. Weekly weight change rate (based on calorie deficit/surplus)
+2. Estimated weeks to reach target = weight_change / weekly_rate
+3. When they'll reach their target weight
+4. Reassessment points along the journey
 
 **If weight loss:**
 - **Age < 60:** Calculate expected kg/week from actual calorie deficit
@@ -1088,7 +1157,16 @@ Include:
 **CRITICAL:** Replace ALL template values with CALCULATED values!
 
 {{
-  "summary": "Personalized 2-3 sentence summary with actual stats and adjustments",
+  "summary": "MUST start with personalized greeting: '{profile.name}, you're aiming to...' Then include: Current weight → Target weight. Estimated timeline (X weeks/months). Why plan supports this. Stats. Adjustments. Example: 'John, you're aiming to move from 83kg to 75kg (8kg loss). Based on your age and balanced approach, this can be achieved safely over 12-16 weeks. This plan uses a calibrated calorie deficit with optimized protein to preserve muscle while burning fat.'",
+  "target_weight_goal": {{
+    "current_weight": {profile.weight_kg},
+    "target_weight": {profile.target_weight_kg},
+    "weight_change_needed": "[CALCULATED: target - current, with +/- sign]",
+    "estimated_weeks": "[CALCULATED: Based on safe weekly rate for age and pace]",
+    "estimated_timeline": "[Human readable: '12-16 weeks' or '4-5 months']",
+    "target_bmi": "[CALCULATED: BMI at target weight]",
+    "safety_note": "[If timeline >6 months or age 65+, add reassuring note about sustainable approach]"
+  }},
   "daily_targets": {{
     "calories": "[CALCULATED narrow 50-80 kcal range, e.g., 1900-1950 kcal]",
     "calories_reasoning": "[MANDATORY: Coach-like explanation, 2-4 lines. Choose GOOD examples from guidelines above. AVOID stating exact TDEE if it creates math contradictions. Example: 'Based on your age, stats, and typical activity, your estimated maintenance is around 2400-2550 kcal. For balanced weight loss, we've designed a calibrated deficit to support steady fat loss of 0.5-0.75kg per week.']",
@@ -1118,11 +1196,13 @@ Include:
     "beginner_tips": "[RELEVANT to chosen activity type]"
   }},
   "expected_results": {{
-    "weekly_weight_change": "[CALCULATED from calorie deficit/surplus]",
+    "weekly_weight_change": "[CALCULATED from calorie deficit/surplus, e.g., '0.5-0.75kg per week']",
+    "target_achievement": "[When will they reach target weight? e.g., 'Expected to reach 75kg target in 12-16 weeks']",
     "visible_changes": "[ADAPT to user's age from guidelines]",
-    "30_day_milestone": "[CALCULATED: weekly_change × 4]",
-    "60_day_milestone": "[CALCULATED: weekly_change × 8]",
-    "90_day_milestone": "[CALCULATED: weekly_change × 12]",
+    "30_day_milestone": "[CALCULATED: weekly_change × 4, e.g., '2-3kg lighter, approximately 80-81kg']",
+    "60_day_milestone": "[CALCULATED: weekly_change × 8, e.g., '4-6kg lighter, approximately 77-79kg']",
+    "90_day_milestone": "[CALCULATED: weekly_change × 12, e.g., '6-9kg lighter, close to or at 75kg target']",
+    "reassessment_note": "[When to adjust plan based on progress toward target]",
     "plateau_warning": "[Relevant warning or 'N/A' if maintenance]"
   }},
   "important_notes": {{
