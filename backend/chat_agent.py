@@ -1,9 +1,9 @@
 """
 Conversational AI Chat Agent for Diet Plan Assistance
-Uses LangChain with Anthropic Claude for natural conversations
+Uses OpenAI GPT for natural conversations
 """
 
-from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from typing import List, Dict, Optional
@@ -18,24 +18,24 @@ class DietChatAgent:
 
     def __init__(self, api_key: Optional[str] = None):
         """
-        Initialize the chat agent with Claude API
+        Initialize the chat agent with OpenAI API
 
         Args:
-            api_key: Anthropic API key (defaults to ANTHROPIC_API_KEY env var)
+            api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
         """
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
-            raise ValueError("ANTHROPIC_API_KEY environment variable not set")
+            raise ValueError("OPENAI_API_KEY environment variable not set")
 
-        # Initialize Claude chat model
-        # Using Claude 3 Haiku (fastest, most cost-effective for chat)
-        self.llm = ChatAnthropic(
-            model="claude-3-haiku-20240307",
-            anthropic_api_key=self.api_key,
+        # Initialize OpenAI chat model
+        # Using GPT-3.5-turbo (fast, cost-effective, reliable)
+        self.llm = ChatOpenAI(
+            model="gpt-3.5-turbo",
+            openai_api_key=self.api_key,
             temperature=0.7,
-            max_tokens=800,  # Reduced tokens for faster responses
-            timeout=90.0,  # 90 second timeout for API requests
-            max_retries=4  # Retry failed requests up to 4 times
+            max_tokens=800,
+            timeout=30.0,
+            max_retries=3
         )
 
         # Store conversation histories per session
