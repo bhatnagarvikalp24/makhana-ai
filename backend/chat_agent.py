@@ -1,11 +1,9 @@
 """
 Conversational AI Chat Agent for Diet Plan Assistance
-Uses OpenAI GPT for natural conversations
+Uses OpenAI GPT for natural conversations (Direct SDK - no LangChain)
 """
 
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_core.chat_history import InMemoryChatMessageHistory
+from openai import OpenAI
 from typing import List, Dict, Optional
 import os
 from datetime import datetime
@@ -27,19 +25,12 @@ class DietChatAgent:
         if not self.api_key:
             raise ValueError("OPENAI_API_KEY environment variable not set")
 
-        # Initialize OpenAI chat model
-        # Using GPT-3.5-turbo (fast, cost-effective, reliable)
-        self.llm = ChatOpenAI(
-            model="gpt-3.5-turbo",
-            openai_api_key=self.api_key,
-            temperature=0.7,
-            max_tokens=800,
-            timeout=30.0,
-            max_retries=3
-        )
+        # Initialize OpenAI client
+        self.client = OpenAI(api_key=self.api_key)
 
         # Store conversation histories per session
-        self.sessions: Dict[str, InMemoryChatMessageHistory] = {}
+        # Format: {session_id: [{"role": "user/assistant/system", "content": "..."}]}
+        self.sessions: Dict[str, List[Dict[str, str]]] = {}
 
         # System prompt for the diet assistant
         self.system_prompt = """You are a helpful, friendly AI diet and nutrition assistant.
@@ -56,12 +47,12 @@ Keep responses concise, friendly, and actionable. Use emojis occasionally to kee
 If asked about medical conditions, remind users to consult healthcare professionals.
 Stay focused on diet, nutrition, and wellness topics."""
 
-    def get_or_create_session(self, session_id: str) -> InMemoryChatMessageHistory:
+    def get_or_create_session(self, session_id: str) -> List[Dict[str, str]]:
         """Get existing session or create new one"""
         if session_id not in self.sessions:
-            self.sessions[session_id] = InMemoryChatMessageHistory()
-            # Add system message at the start
-            self.sessions[session_id].add_message(SystemMessage(content=self.system_prompt))
+            self.sessions[session_id] = [
+                {"role": "system", "content": self.system_prompt}
+            ]
         return self.sessions[session_id]
 
     def chat(self, session_id: str, user_message: str, context: Optional[Dict] = None) -> str:
@@ -77,7 +68,7 @@ Stay focused on diet, nutrition, and wellness topics."""
             AI response string
         """
         # Get conversation history
-        history = self.get_or_create_session(session_id)
+        messages = self.get_or_create_session(session_id)
 
         # Add context if provided (prepend to user message)
         enhanced_message = user_message
@@ -86,22 +77,26 @@ Stay focused on diet, nutrition, and wellness topics."""
             enhanced_message = f"[User Context: {context_str}]\n\nUser Question: {user_message}"
 
         # Add user message to history
-        history.add_message(HumanMessage(content=enhanced_message))
+        messages.append({"role": "user", "content": enhanced_message})
 
-        # Get all messages for the LLM
-        messages = history.messages
-
-        # Get AI response with retry logic for temporary API errors
-        max_retries = 2  # Reduced since ChatAnthropic already has max_retries=4
-        retry_delay = 1  # Faster retry (1 second instead of 2)
+        # Get AI response with retry logic
+        max_retries = 3
+        retry_delay = 1
 
         for attempt in range(max_retries):
             try:
-                response = self.llm.invoke(messages)
-                ai_message = response.content
+                response = self.client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=messages,
+                    temperature=0.7,
+                    max_tokens=800,
+                    timeout=30.0
+                )
+
+                ai_message = response.choices[0].message.content
 
                 # Add AI response to history
-                history.add_message(AIMessage(content=ai_message))
+                messages.append({"role": "assistant", "content": ai_message})
 
                 return ai_message
 
@@ -110,9 +105,7 @@ Stay focused on diet, nutrition, and wellness topics."""
 
                 # Check if it's a retryable error
                 retryable_errors = [
-                    "overloaded", "529",  # API overload
-                    "connection", "timeout",  # Connection issues
-                    "rate limit", "429"  # Rate limiting
+                    "timeout", "connection", "rate limit", "429", "503", "502"
                 ]
 
                 is_retryable = any(err in error_str for err in retryable_errors)
@@ -123,19 +116,15 @@ Stay focused on diet, nutrition, and wellness topics."""
                     time.sleep(retry_delay)
                     continue
                 elif is_retryable:
-                    # Max retries reached for retryable error
-                    if "overloaded" in error_str or "529" in error_str:
-                        error_msg = "I'm experiencing high demand right now. Please try again in a moment! 🙏"
-                    elif "timeout" in error_str or "connection" in error_str:
-                        error_msg = "Connection timeout. The AI service is responding slowly. Please try again! ⏱️"
-                    else:
-                        error_msg = "The AI service is temporarily unavailable. Please try again shortly! 🔄"
+                    # Max retries reached
+                    error_msg = "I'm having trouble connecting right now. Please try again in a moment! 🔄"
                 else:
                     # Non-retryable error
-                    error_msg = f"Sorry, I encountered an error: {str(e)}"
+                    error_msg = "Sorry, I encountered an error. Please try again! 💭"
                     break
 
-        history.add_message(AIMessage(content=error_msg))
+        # Add error message to history
+        messages.append({"role": "assistant", "content": error_msg})
         return error_msg
 
     def _format_context(self, context: Dict) -> str:
@@ -167,21 +156,8 @@ Stay focused on diet, nutrition, and wellness topics."""
         if session_id not in self.sessions:
             return []
 
-        history = self.sessions[session_id]
-        messages = []
-
-        for msg in history.messages:
-            # Skip system messages
-            if isinstance(msg, SystemMessage):
-                continue
-
-            role = "user" if isinstance(msg, HumanMessage) else "assistant"
-            messages.append({
-                "role": role,
-                "content": msg.content
-            })
-
-        return messages
+        # Return all messages except system prompt
+        return [msg for msg in self.sessions[session_id] if msg["role"] != "system"]
 
     def clear_session(self, session_id: str) -> bool:
         """Clear conversation history for a session"""

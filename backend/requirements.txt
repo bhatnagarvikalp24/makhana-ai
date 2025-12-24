@@ -9,6 +9,3 @@ razorpay
 pdfplumber
 requests
 psycopg2-binary
-langchain
-langchain-openai
-langchain-community
