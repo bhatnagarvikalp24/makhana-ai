@@ -47,6 +47,7 @@ pydantic==2.5.0
 python-multipart==0.0.6
 python-dotenv==1.0.0
 openai==1.3.5
+anthropic==0.18.1
 razorpay==1.4.1
 pdfplumber==0.10.3
 requests==2.31.0
@@ -91,6 +92,7 @@ ecdsa==0.18.0
    - `DATABASE_URL` - PostgreSQL connection string
    - `JWT_SECRET_KEY` - Secret key for JWT tokens
    - `OPENAI_API_KEY` - OpenAI API key
+   - `ANTHROPIC_API_KEY` - Anthropic API key (for price optimizer)
    - `RAZORPAY_KEY_ID` - Razorpay key ID
    - `RAZORPAY_KEY_SECRET` - Razorpay key secret
 
@@ -237,6 +239,7 @@ Go to **Environment** tab and add:
 DATABASE_URL=postgresql://user:pass@host:5432/dbname
 JWT_SECRET_KEY=your-secret-key-here
 OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
 RAZORPAY_KEY_ID=rzp_...
 RAZORPAY_KEY_SECRET=...
 ```
