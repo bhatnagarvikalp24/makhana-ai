@@ -8,10 +8,15 @@ import Footer from './components/Footer';
 const Landing = lazy(() => import('./pages/Landing'));
 const UserForm = lazy(() => import('./pages/UserForm'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
-const Login = lazy(() => import('./pages/Login'));
+const Login = lazy(() => import('./pages/Login')); // Legacy login
+const OTPLogin = lazy(() => import('./pages/OTPLogin')); // OTP-based login
+const PasswordLogin = lazy(() => import('./pages/PasswordLogin')); // NEW: Password login (DEFAULT)
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword')); // NEW: Forgot password
+const AccountSettings = lazy(() => import('./pages/AccountSettings')); // NEW: Account settings
 const Grocery = lazy(() => import('./pages/Grocery'));
 const PlanList = lazy(() => import('./pages/PlanList'));
 const ProgressHistory = lazy(() => import('./pages/ProgressHistory'));
+const PriceOptimizer = lazy(() => import('./pages/PriceOptimizer')); // NEW: Smart Grocery Optimizer
 const ComingSoon = lazy(() => import('./pages/ComingSoon'));
 const Privacy = lazy(() => import('./pages/Privacy'));
 const Terms = lazy(() => import('./pages/Terms'));
@@ -67,10 +72,15 @@ function App() {
             <Routes>
               <Route path="/" element={<Landing />} />
               <Route path="/start" element={<UserForm />} />
-              <Route path="/login" element={<Login />} />
+              <Route path="/login" element={<PasswordLogin />} /> {/* DEFAULT: Password Login */}
+              <Route path="/login-otp" element={<OTPLogin />} /> {/* OTP Login */}
+              <Route path="/login-legacy" element={<Login />} /> {/* Legacy login */}
+              <Route path="/forgot-password" element={<ForgotPassword />} /> {/* NEW: Forgot Password */}
+              <Route path="/account-settings" element={<AccountSettings />} /> {/* NEW: Account Settings */}
               <Route path="/my-plans" element={<PlanList />} />
               <Route path="/plan" element={<Dashboard />} />
               <Route path="/grocery" element={<Grocery />} />
+              <Route path="/price-optimizer" element={<PriceOptimizer />} /> {/* NEW: Price Optimizer */}
               <Route path="/progress" element={<ProgressHistory />} />
               <Route path="/coming-soon" element={<ComingSoon />} />
               <Route path="/privacy" element={<Privacy />} />

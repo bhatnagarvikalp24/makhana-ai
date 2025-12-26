@@ -217,7 +217,27 @@ export default function UserForm() {
     setLoading(true);
 
     try {
-      const guestId = `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      // Check if user is logged in (has auth token)
+      const authToken = localStorage.getItem('auth_token');
+      const userDataStr = localStorage.getItem('user');
+      let userPhone = null;
+
+      if (authToken && userDataStr) {
+        try {
+          const userData = JSON.parse(userDataStr);
+          userPhone = userData.phone;
+        } catch (e) {
+          console.error('Failed to parse user data:', e);
+        }
+      }
+
+      // If not logged in, redirect to login
+      if (!userPhone) {
+        toast.error('Please login first to create a diet plan');
+        setTimeout(() => navigate('/login'), 1500);
+        setLoading(false);
+        return;
+      }
 
       // LOGIC: Combine selected medical conditions with blood report findings
       let finalMedicalTags = [...formData.medical_manual];
@@ -232,7 +252,7 @@ export default function UserForm() {
 
       const profile = {
         name: formData.name,
-        phone: guestId,
+        phone: userPhone, // Use authenticated user's phone
         age: parseInt(formData.age),
         gender: formData.gender,
         height_cm: parseFloat(formData.height),

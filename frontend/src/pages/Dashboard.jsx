@@ -1,12 +1,13 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ShoppingCart, ArrowLeft, Loader2, Save, X, Stethoscope, Download, ShieldCheck, RefreshCw, Play, TrendingUp, Activity } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import html2pdf from 'html2pdf.js';
 import toast from 'react-hot-toast'; // <--- 1. IMPORT TOAST
 import { generateGrocery } from '../components/api';
 import WeeklyCheckIn from '../components/WeeklyCheckIn';
 import ChatAssistant from '../components/ChatAssistant';
+import GroceryLoading from '../components/GroceryLoading';
 
 const API_URL = import.meta.env.DEV ? 'http://localhost:8000' : 'https://makhana-ai.onrender.com';
 
@@ -15,6 +16,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(false);
+  const [showGroceryLoading, setShowGroceryLoading] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [phone, setPhone] = useState('');
   const [planTitle, setPlanTitle] = useState('');
@@ -36,28 +38,56 @@ export default function Dashboard() {
 
   // Check if plan is saved (from state or localStorage)
   const getSavedPlanInfo = () => {
+    console.log('getSavedPlanInfo - state:', state); // DEBUG
+    console.log('getSavedPlanInfo - state.planId:', state?.planId); // DEBUG
+
     // Priority 1: Check if coming from PlanList (has planId in state)
     if (state?.planId) {
-      return { planId: state.planId, userId: state.userId, isSaved: true };
+      const info = { planId: state.planId, userId: state.userId, isSaved: true };
+      console.log('getSavedPlanInfo - returning from state:', info); // DEBUG
+      return info;
     }
 
     // Priority 2: Check localStorage
     const saved = localStorage.getItem('savedPlan');
+    console.log('getSavedPlanInfo - localStorage savedPlan:', saved); // DEBUG
     if (saved) {
       try {
         const parsedData = JSON.parse(saved);
-        return { ...parsedData, isSaved: true };
+        const info = { ...parsedData, isSaved: true };
+        console.log('getSavedPlanInfo - returning from localStorage:', info); // DEBUG
+        return info;
       } catch {
+        console.log('getSavedPlanInfo - localStorage parse failed'); // DEBUG
         return { isSaved: false };
       }
     }
 
+    console.log('getSavedPlanInfo - no plan found, returning isSaved: false'); // DEBUG
     return { isSaved: false };
   };
 
   const savedPlanInfo = getSavedPlanInfo();
+  console.log('Dashboard - savedPlanInfo:', savedPlanInfo); // DEBUG
+  console.log('Dashboard - state:', state); // DEBUG
+
+  // Pre-fill phone number from logged-in user
+  useEffect(() => {
+    const loggedInUser = localStorage.getItem('user');
+    if (loggedInUser) {
+      try {
+        const user = JSON.parse(loggedInUser);
+        if (user.phone && !phone) {
+          setPhone(user.phone);
+        }
+      } catch (error) {
+        console.error('Error parsing user data:', error);
+      }
+    }
+  }, []);
 
   const handleCheckInClick = () => {
+    console.log('handleCheckInClick - savedPlanInfo:', savedPlanInfo); // DEBUG
     if (!savedPlanInfo.isSaved) {
       toast.error('Please save your plan first to use check-ins!', {
         icon: '💾',
@@ -135,18 +165,29 @@ export default function Dashboard() {
   };
 
   const handleGrocery = async () => {
-    setLoading(true);
-    const loadingToast = toast.loading("Preparing your grocery list..."); // Loading toast
+    const planId = savedPlanInfo.planId || state?.planId;
+
+    if (!planId) {
+      toast.error('Please save your plan first to generate grocery list!', {
+        icon: '💾',
+        duration: 4000
+      });
+      setShowSaveModal(true);
+      return;
+    }
+
+    setShowGroceryLoading(true);
     try {
-        const res = await generateGrocery(state.planId);
-        toast.dismiss(loadingToast); // Dismiss loading
-        navigate('/grocery', { state: { list: res.data } });
+        const res = await generateGrocery(planId);
+        // Keep loading screen visible for a smooth transition
+        setTimeout(() => {
+          navigate('/grocery', { state: { list: res.data } });
+        }, 1500); // Small delay for nice UX
     } catch (error) {
         console.error(error);
-        toast.dismiss(loadingToast);
-        toast.error("Could not generate grocery list. Check backend console."); // Error toast
+        setShowGroceryLoading(false);
+        toast.error("Could not generate grocery list. Please try again.");
     }
-    setLoading(false);
   };
 
   const handleSavePlan = async () => {
@@ -154,17 +195,39 @@ export default function Dashboard() {
         toast.error("Please enter a valid phone number and plan name."); // Error toast
         return;
     }
+
+    // Security check: Prevent saving to different phone number if logged in
+    const loggedInUser = localStorage.getItem('user');
+    if (loggedInUser) {
+      try {
+        const user = JSON.parse(loggedInUser);
+        if (user.phone && phone !== user.phone) {
+          toast.error(`You can only save plans to your logged-in phone number: ${user.phone}`, {
+            duration: 5000,
+            icon: '🔒'
+          });
+          return;
+        }
+      } catch (error) {
+        console.error('Error parsing user data:', error);
+      }
+    }
+
     setSaveStatus('saving');
     const savingToast = toast.loading("Saving your plan...");
 
     try {
+        // Get auth token if available
+        const token = localStorage.getItem('auth_token');
+        const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
         const response = await axios.post(`${API_URL}/save-plan`, {
             user_id: state.userId || state.plan?.user_id,
             phone: phone,
             title: planTitle,
             plan_json: JSON.stringify(state.plan),
             grocery_json: state.grocery ? JSON.stringify(state.grocery) : null
-        });
+        }, { headers });
 
         setSaveStatus('success');
         toast.dismiss(savingToast);
@@ -263,8 +326,12 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-green-50 to-white">
-      <div className="max-w-5xl mx-auto px-4 py-6 relative">
+    <>
+      {/* Grocery Loading Screen */}
+      {showGroceryLoading && <GroceryLoading />}
+
+      <div className="min-h-screen bg-gradient-to-b from-green-50 to-white">
+        <div className="max-w-5xl mx-auto px-4 py-6 relative">
 
         {/* --- HEADER --- */}
         <div className="mb-6">
@@ -729,12 +796,14 @@ export default function Dashboard() {
                             value={planTitle}
                             onChange={(e) => setPlanTitle(e.target.value)}
                         />
-                        <input 
-                            type="tel" 
+                        <input
+                            type="tel"
                             placeholder="Phone Number"
-                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                            className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none ${localStorage.getItem('user') ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                             value={phone}
                             onChange={(e) => setPhone(e.target.value)}
+                            readOnly={!!localStorage.getItem('user')}
+                            title={localStorage.getItem('user') ? 'Phone number is locked to your account' : ''}
                         />
                         <button 
                             onClick={handleSavePlan}
@@ -927,7 +996,7 @@ export default function Dashboard() {
       {/* --- WEEKLY CHECK-IN MODAL --- */}
       {showCheckInModal && savedPlanInfo.isSaved && (
         <WeeklyCheckIn
-          planId={savedPlanInfo.planId}
+          planId={savedPlanInfo.planId || state?.planId}
           onClose={() => setShowCheckInModal(false)}
           onSuccess={(results) => {
             console.log('Check-in completed:', results);
@@ -951,5 +1020,6 @@ export default function Dashboard() {
 
       </div>
     </div>
+    </>
   );
 }

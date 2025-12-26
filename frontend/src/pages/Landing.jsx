@@ -27,17 +27,17 @@ export default function Landing() {
 
         <div className="inline-flex items-center bg-gradient-to-r from-green-100 to-emerald-100 text-green-800 px-5 py-2 rounded-full text-sm font-bold mb-8 shadow-sm border border-green-200 animate-bounce-slow">
             <Activity size={16} className="mr-2 animate-pulse" />
-            AI-Powered Nutrition
+            Powered by Multi-Agent AI
         </div>
 
         <h1 className="text-5xl md:text-7xl font-extrabold text-gray-900 mb-6 leading-tight animate-slide-up">
-          Eat Smarter, <br/>
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-emerald-500">Not Less.</span>
+          Smart AI That <br/>
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-600 via-blue-600 to-purple-600">Understands You.</span>
         </h1>
 
-        <p className="text-xl md:text-2xl text-gray-600 mb-12 max-w-2xl mx-auto leading-relaxed animate-fade-in-delayed">
-          Get a personalized 7-day meal plan based on your health goals,
-          regional taste, and even your blood report.
+        <p className="text-xl md:text-2xl text-gray-600 mb-12 max-w-3xl mx-auto leading-relaxed animate-fade-in-delayed">
+          Not just a diet app. An AI nutritionist that speaks your language, tastes your culture,
+          and heals your body with intelligent meal planning.
         </p>
 
         <div className="flex flex-col sm:flex-row justify-center gap-4 animate-fade-in-delayed-more">
@@ -71,51 +71,85 @@ export default function Landing() {
         <div className="grid md:grid-cols-3 gap-6 mt-24 text-left max-w-5xl mx-auto">
             <FeatureCard
                 icon={<Apple size={32} />}
-                title="Regional Taste"
-                desc="Whether you love Gujarati Dal or Punjabi Chole, we adapt to your kitchen."
+                title="Regional Taste Intelligence"
+                desc="From North Indian rotis to South Indian dosas - our AI understands 500+ regional dishes and adapts them to your health goals without losing authentic taste."
                 color="green"
             />
             <FeatureCard
                 icon={<Brain size={32} />}
                 title="Medical Intelligence"
-                desc="Upload your blood report. Our AI detects deficiencies and suggests food fixes."
+                desc="PCOS, diabetes, thyroid issues? Our AI agent automatically excludes harmful ingredients and suggests therapeutic alternatives backed by nutritional science."
                 color="blue"
             />
             <FeatureCard
                 icon={<ShoppingBag size={32} />}
-                title="Instant Grocery List"
-                desc="Get a consolidated shopping list for your entire week in one click."
+                title="Smart Grocery + Budget Optimizer"
+                desc="One-click grocery list with AI-powered price intelligence. Find cheaper alternatives and save 30-40% on your grocery bill without compromising nutrition."
                 color="purple"
             />
         </div>
 
-        {/* --- WHY CHOOSE US --- */}
+        {/* --- AI TECHNOLOGY SECTION --- */}
         <div className="mt-32 max-w-6xl mx-auto">
           <div className="text-center mb-12">
-            <h2 className="text-4xl font-extrabold text-gray-900 mb-4">Why Choose Ghar-Ka-Khana?</h2>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">AI-powered features that make healthy eating effortless</p>
+            <div className="inline-block bg-gradient-to-r from-purple-100 to-blue-100 text-purple-800 px-4 py-2 rounded-full text-sm font-bold mb-4">
+              Built on Cutting-Edge Generative AI
+            </div>
+            <h2 className="text-4xl font-extrabold text-gray-900 mb-4">Multi-Agent AI System</h2>
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+              Our AI agents work together - one analyzes your health data, another curates regional recipes,
+              and a third optimizes your grocery budget in real-time.
+            </p>
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             <BenefitCard
               icon={<Brain size={28} />}
-              label="Medical Intelligence"
-              desc="Upload blood reports for AI-powered deficiency detection"
+              label="AI Health Analyst"
+              desc="Medical AI agent that understands 15+ health conditions and blood report insights"
+            />
+            <BenefitCard
+              icon={<Apple size={28} />}
+              label="Regional Recipe AI"
+              desc="Curates authentic dishes from your region while maintaining nutritional balance"
             />
             <BenefitCard
               icon={<ShoppingBag size={28} />}
-              label="Budget Optimizer"
-              desc="Smart grocery swaps to save money without compromising nutrition"
+              label="Budget Optimizer AI"
+              desc="Compares prices, finds cheaper alternatives, and maximizes your grocery savings"
             />
             <BenefitCard
               icon={<Activity size={28} />}
-              label="Meal Swapper"
-              desc="Don't like a meal? Swap it instantly with macro-matched alternatives"
+              label="Adaptive Planning"
+              desc="AI learns from your preferences and adjusts meal plans based on your feedback"
             />
+          </div>
+        </div>
+
+        {/* --- WHY CHOOSE US --- */}
+        <div className="mt-32 max-w-6xl mx-auto">
+          <div className="text-center mb-12">
+            <h2 className="text-4xl font-extrabold text-gray-900 mb-4">Because Your Idli Shouldn't Become a Salad</h2>
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+              AI that respects your cravings, understands your culture, and still gets you healthy
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             <BenefitCard
               icon={<CheckCircle size={28} />}
-              label="100% Free"
-              desc="No hidden costs, no subscriptions, always free"
+              label="100% Free Forever"
+              desc="No hidden costs, no subscriptions. AI-powered nutrition for everyone."
+            />
+            <BenefitCard
+              icon={<Shield size={28} />}
+              label="Privacy First"
+              desc="Your health data stays private. We never sell or share your information."
+            />
+            <BenefitCard
+              icon={<Clock size={28} />}
+              label="Plans in 30 Seconds"
+              desc="Generative AI creates personalized 7-day meal plans faster than you can say 'diet'."
             />
           </div>
         </div>
@@ -123,38 +157,40 @@ export default function Landing() {
         {/* --- HOW IT WORKS --- */}
         <div className="mt-32 bg-white rounded-3xl shadow-xl p-8 md:p-12 border border-gray-100 max-w-5xl mx-auto">
           <div className="text-center mb-12">
-            <h2 className="text-4xl font-extrabold text-gray-900 mb-4">How It Works</h2>
-            <p className="text-xl text-gray-600">Get your personalized diet plan in 3 simple steps</p>
+            <h2 className="text-4xl font-extrabold text-gray-900 mb-4">From GPT to Your Plate</h2>
+            <p className="text-xl text-gray-600">The future of nutrition, delivered in 3 simple steps</p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-8">
             <StepCard
               step="1"
-              title="Share Your Details"
-              desc="Tell us your age, weight, goals, and regional food preferences. Upload blood reports for medical intelligence."
+              title="You Speak, AI Listens"
+              desc="Tell us your age, weight, health goals, and regional food preferences. Upload blood reports and our medical AI analyzes them instantly."
             />
             <StepCard
               step="2"
-              title="AI Generates Plan"
-              desc="AI analyzes your profile and creates a 7-day meal plan with YouTube recipe videos for each meal."
+              title="AI Agents Collaborate"
+              desc="Our multi-agent AI system works together - analyzing your health, curating regional recipes, and creating a personalized 7-day meal plan with recipe videos."
             />
             <StepCard
               step="3"
-              title="Shop & Cook Smart"
-              desc="Get grocery lists with budget optimization and smart swaps. Swap any meal you don't like instantly!"
+              title="Smart Grocery + Cooking"
+              desc="Get AI-optimized grocery lists with budget intelligence. Don't like a meal? Our AI swaps it with macro-matched alternatives instantly!"
             />
           </div>
         </div>
 
         {/* --- FINAL CTA --- */}
-        <div className="mt-32 bg-gradient-to-r from-green-600 to-emerald-500 rounded-3xl p-12 text-center text-white shadow-2xl max-w-4xl mx-auto">
-          <h2 className="text-4xl md:text-5xl font-extrabold mb-4">Ready to Transform Your Health?</h2>
-          <p className="text-xl md:text-2xl mb-8 opacity-90">Get your free personalized meal plan now</p>
+        <div className="mt-32 bg-gradient-to-r from-green-600 via-blue-600 to-purple-600 rounded-3xl p-12 text-center text-white shadow-2xl max-w-4xl mx-auto">
+          <h2 className="text-4xl md:text-5xl font-extrabold mb-4">AI Nutrition, Made for India</h2>
+          <p className="text-xl md:text-2xl mb-8 opacity-90">
+            Smart enough to plan meals. Wise enough to respect your cravings.
+          </p>
           <button
             onClick={() => navigate('/start')}
-            className="bg-white text-green-700 px-12 py-5 rounded-2xl font-bold text-xl hover:bg-gray-100 transition-all duration-300 shadow-xl hover:shadow-2xl transform hover:scale-105 inline-flex items-center gap-3"
+            className="bg-white text-purple-700 px-12 py-5 rounded-2xl font-bold text-xl hover:bg-gray-100 transition-all duration-300 shadow-xl hover:shadow-2xl transform hover:scale-105 inline-flex items-center gap-3"
           >
-            Start Your Journey
+            Experience AI Magic
             <ArrowRight size={24} />
           </button>
         </div>

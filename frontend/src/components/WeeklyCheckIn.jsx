@@ -24,6 +24,13 @@ export default function WeeklyCheckIn({ planId, onClose, onSuccess }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    console.log('WeeklyCheckIn - planId:', planId); // DEBUG
+
+    if (!planId) {
+      toast.error('Plan ID not found. Please save your plan first.');
+      return;
+    }
+
     if (!formData.current_weight_kg || formData.current_weight_kg <= 0) {
       toast.error('Please enter a valid weight');
       return;
@@ -32,17 +39,21 @@ export default function WeeklyCheckIn({ planId, onClose, onSuccess }) {
     setLoading(true);
     const loadingToast = toast.loading('Analyzing your progress...');
 
+    const requestData = {
+      plan_id: planId,
+      current_weight_kg: parseFloat(formData.current_weight_kg),
+      diet_adherence_percent: parseInt(formData.diet_adherence_percent),
+      exercise_adherence_percent: parseInt(formData.exercise_adherence_percent),
+      energy_level: formData.energy_level,
+      hunger_level: formData.hunger_level,
+      challenges: formData.challenges.trim() || null,
+      notes: formData.notes.trim() || null
+    };
+
+    console.log('WeeklyCheckIn - Request data:', requestData); // DEBUG
+
     try {
-      const response = await axios.post(`${API_URL}/weekly-checkin`, {
-        plan_id: planId,
-        current_weight_kg: parseFloat(formData.current_weight_kg),
-        diet_adherence_percent: parseInt(formData.diet_adherence_percent),
-        exercise_adherence_percent: parseInt(formData.exercise_adherence_percent),
-        energy_level: formData.energy_level,
-        hunger_level: formData.hunger_level,
-        challenges: formData.challenges.trim() || null,
-        notes: formData.notes.trim() || null
-      });
+      const response = await axios.post(`${API_URL}/weekly-checkin`, requestData);
 
       toast.dismiss(loadingToast);
 
@@ -90,8 +101,22 @@ export default function WeeklyCheckIn({ planId, onClose, onSuccess }) {
               <div>
                 <p className="text-sm text-gray-600">This Week's Progress</p>
                 <p className="text-3xl font-bold text-gray-800 flex items-center mt-1">
-                  {results.weight_change_kg > 0 ? <TrendingUp className="text-red-500 mr-2" size={28} /> : <TrendingDown className="text-green-600 mr-2" size={28} />}
-                  {results.weight_change_kg > 0 ? '+' : ''}{results.weight_change_kg.toFixed(2)} kg
+                  {results.weight_change_kg > 0 ? (
+                    <>
+                      <TrendingUp className="text-red-500 mr-2" size={28} />
+                      +{results.weight_change_kg.toFixed(2)} kg (gained)
+                    </>
+                  ) : results.weight_change_kg < 0 ? (
+                    <>
+                      <TrendingDown className="text-green-600 mr-2" size={28} />
+                      {results.weight_change_kg.toFixed(2)} kg (lost)
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-gray-500 mr-2">➖</div>
+                      {results.weight_change_kg.toFixed(2)} kg (no change)
+                    </>
+                  )}
                 </p>
               </div>
               {results.insights.is_on_track ? (
@@ -127,7 +152,7 @@ export default function WeeklyCheckIn({ planId, onClose, onSuccess }) {
           )}
 
           {/* Calorie Adjustment */}
-          {results.adjusted_calories && (
+          {results.adjusted_calories && results.previous_calories && (
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
               <h4 className="font-bold text-blue-900 mb-2">📊 Calorie Adjustment</h4>
               <p className="text-sm text-blue-700 mb-3">
@@ -136,7 +161,7 @@ export default function WeeklyCheckIn({ planId, onClose, onSuccess }) {
               <div className="flex items-center justify-center space-x-4">
                 <div className="text-center">
                   <p className="text-xs text-gray-500">Previous</p>
-                  <p className="text-lg font-bold text-gray-700">{results.adjusted_calories - (results.insights.calorie_adjustment || 0)} kcal</p>
+                  <p className="text-lg font-bold text-gray-700">{results.previous_calories} kcal</p>
                 </div>
                 <div className="text-2xl text-gray-400">→</div>
                 <div className="text-center">

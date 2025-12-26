@@ -1,7 +1,8 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, ChevronRight, Calendar, Utensils, User, Sparkles, TrendingUp, Activity } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Calendar, Utensils, User, Sparkles, TrendingUp, Activity, Loader2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import toast from 'react-hot-toast';
 
 const API_URL = import.meta.env.DEV ? 'http://localhost:8000' : 'https://makhana-ai.onrender.com';
 
@@ -9,14 +10,69 @@ export default function PlanList() {
   const { state } = useLocation();
   const navigate = useNavigate();
   const [checkInCounts, setCheckInCounts] = useState({});
+  const [plans, setPlans] = useState(state?.plans || null);
+  const [user, setUser] = useState(state?.user || null);
+  const [loading, setLoading] = useState(!state?.plans);
+
+  // Fetch plans from API if not provided via state
+  useEffect(() => {
+    const fetchPlans = async () => {
+      // If we already have plans from navigation state, skip API call
+      if (state?.plans && state?.user) {
+        setPlans(state.plans);
+        setUser(state.user);
+        setLoading(false);
+        return;
+      }
+
+      // Check if user is logged in
+      const token = localStorage.getItem('auth_token');
+      const storedUser = localStorage.getItem('user');
+
+      if (!token || !storedUser) {
+        toast.error('Please login to view your plans');
+        navigate('/login');
+        return;
+      }
+
+      try {
+        setLoading(true);
+        const response = await axios.get(`${API_URL}/auth/my-plans`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (response.data.success) {
+          setPlans(response.data.plans);
+          setUser(response.data.user);
+        } else {
+          toast.error('Failed to fetch plans');
+          navigate('/start');
+        }
+      } catch (error) {
+        console.error('Failed to fetch plans:', error);
+        if (error.response?.status === 401) {
+          toast.error('Session expired. Please login again.');
+          localStorage.removeItem('auth_token');
+          localStorage.removeItem('user');
+          navigate('/login');
+        } else {
+          toast.error('Failed to load plans. Please try again.');
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPlans();
+  }, [state, navigate]);
 
   // Fetch check-in count for each plan
   useEffect(() => {
     const fetchCheckInCounts = async () => {
-      if (!state?.plans) return;
+      if (!plans) return;
 
       const counts = {};
-      for (const plan of state.plans) {
+      for (const plan of plans) {
         try {
           const response = await axios.get(`${API_URL}/progress-history/${plan.id}`);
           if (response.data.success) {
@@ -31,9 +87,22 @@ export default function PlanList() {
     };
 
     fetchCheckInCounts();
-  }, [state?.plans]);
+  }, [plans]);
 
-  if (!state?.plans || state.plans.length === 0) {
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-green-50 to-white flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="animate-spin text-green-600 mx-auto mb-4" size={48} />
+          <p className="text-gray-600 font-medium">Loading your plans...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // No plans state
+  if (!plans || plans.length === 0) {
     return (
       <div className="min-h-screen bg-gradient-to-b from-green-50 to-white">
         <div className="max-w-2xl mx-auto px-4 py-16 text-center">
@@ -60,7 +129,7 @@ export default function PlanList() {
         state: {
             plan: plan.diet,
             planId: plan.id,
-            userId: state.user.id
+            userId: user.id
         }
     });
   };
@@ -90,12 +159,12 @@ export default function PlanList() {
             </button>
             <div>
               <h1 className="text-3xl font-bold text-gray-800">My Diet Plans</h1>
-              <p className="text-gray-600 text-sm mt-1">Welcome back, {state.user?.name || 'User'}!</p>
+              <p className="text-gray-600 text-sm mt-1">Welcome back, {user?.name || 'User'}!</p>
             </div>
           </div>
           <div className="hidden md:flex items-center gap-2 bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-100">
             <User className="text-green-600" size={20} />
-            <span className="text-sm font-medium text-gray-700">{state.user?.phone?.replace(/(\d{4})(\d{6})/, '$1-***-***')}</span>
+            <span className="text-sm font-medium text-gray-700">{user?.phone?.replace(/(\d{4})(\d{6})/, '$1-***-***')}</span>
           </div>
         </div>
 
@@ -106,7 +175,7 @@ export default function PlanList() {
               <span className="text-green-100 text-sm font-medium">Total Plans</span>
               <Sparkles size={20} />
             </div>
-            <div className="text-4xl font-bold">{state.plans.length}</div>
+            <div className="text-4xl font-bold">{plans.length}</div>
           </div>
 
           <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-6 rounded-2xl shadow-lg">
@@ -114,7 +183,7 @@ export default function PlanList() {
               <span className="text-blue-100 text-sm font-medium">Latest Plan</span>
               <Calendar size={20} />
             </div>
-            <div className="text-lg font-bold">{new Date(state.plans[0]?.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+            <div className="text-lg font-bold">{new Date(plans[0]?.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
           </div>
 
           <div className="bg-gradient-to-br from-purple-500 to-purple-600 text-white p-6 rounded-2xl shadow-lg">
@@ -123,7 +192,7 @@ export default function PlanList() {
               <TrendingUp size={20} />
             </div>
             <div className="text-lg font-bold flex items-center gap-2">
-              <span>{getGoalIcon(state.plans[0]?.diet)}</span>
+              <span>{getGoalIcon(plans[0]?.diet)}</span>
               <span>In Progress</span>
             </div>
           </div>
@@ -131,7 +200,7 @@ export default function PlanList() {
 
         {/* Plans List */}
         <div className="space-y-4 mb-8">
-          {state.plans.map((plan, index) => (
+          {plans.map((plan, index) => (
             <div
               key={plan.id}
               onClick={() => openPlan(plan)}

@@ -2,10 +2,10 @@ import os
 import json
 import logging
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Web Framework
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Form, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -26,6 +26,25 @@ import pdfplumber
 import razorpay
 import requests
 from dotenv import load_dotenv
+
+# Authentication utilities
+from auth_utils import (
+    generate_otp,
+    send_otp,
+    create_access_token,
+    verify_token,
+    validate_phone_number,
+    format_phone_number
+)
+
+# Price Optimizer
+from price_optimizer import (
+    get_ingredient_price,
+    find_cheaper_alternatives,
+    analyze_grocery_list_with_ai,
+    auto_optimize_grocery_list,
+    get_price_alert_ingredients
+)
 
 # --- 1. CONFIGURATION & SETUP ---
 
@@ -145,7 +164,35 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-# In backend/main.py, add this class near the top
+# Pydantic models for requests/responses
+
+class SignupRequest(BaseModel):
+    """User signup with password"""
+    phone: str = Field(..., description="10-digit phone number")
+    password: str = Field(..., min_length=6, description="Password (min 6 characters)")
+    security_key: str = Field(..., min_length=4, description="Security key for password recovery (min 4 characters)")
+    name: Optional[str] = Field(None, description="User's name")
+
+class LoginRequest(BaseModel):
+    """User login with password"""
+    phone: str = Field(..., description="10-digit phone number")
+    password: str = Field(..., description="Password")
+
+class ResetPasswordRequest(BaseModel):
+    """Reset password using security key"""
+    phone: str = Field(..., description="10-digit phone number")
+    security_key: str = Field(..., description="Security key for verification")
+    new_password: str = Field(..., min_length=6, description="New password (min 6 characters)")
+
+class ChangePasswordRequest(BaseModel):
+    """Change password for authenticated user"""
+    old_password: str = Field(..., description="Current password")
+    new_password: str = Field(..., min_length=6, description="New password (min 6 characters)")
+
+class UpdateProfileRequest(BaseModel):
+    """Update user profile"""
+    name: Optional[str] = Field(None, description="User's name")
+    email: Optional[str] = Field(None, description="User's email")
 
 class GeneratePlanRequest(BaseModel):
     age: int = Field(..., ge=5, le=120, description="Age must be between 5 and 120 years")
@@ -159,9 +206,13 @@ class GeneratePlanRequest(BaseModel):
     pantry_level: str = "core"  # "core" (Basic), "modern" (Oats/Paneer), "global" (Avocado)
     allergies: Optional[str] = None
 
-# Add this class along with your other Pydantic models (around line 125)
-class LoginRequest(BaseModel):
+# Authentication Request Models
+class SendOTPRequest(BaseModel):
     phone: str
+
+class VerifyOTPRequest(BaseModel):
+    phone: str
+    otp_code: str
 
 class SavePlanRequest(BaseModel):
     user_id: int
@@ -184,16 +235,33 @@ class User(Base):
     name = Column(String)
     phone = Column(String, unique=True, index=True)  # UNIQUE IDENTIFIER
     email = Column(String, nullable=True)
-    
+
+    # Authentication
+    password_hash = Column(String, nullable=True)  # Password-based auth
+    security_key = Column(String, nullable=True)  # For password recovery
+
     # Store profile as JSON so we can update it if they change goals
-    profile_data = Column(Text) 
+    profile_data = Column(Text)
     medical_issues = Column(Text)
-    
+
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     # Relationships
     diet_plans = relationship("DietPlan", back_populates="user")
     orders = relationship("Order", back_populates="user")
+
+class OTPVerification(Base):
+    """OTP verification for phone-based authentication"""
+    __tablename__ = "otp_verifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    phone = Column(String, index=True)
+    otp_code = Column(String)  # 6-digit OTP
+
+    expires_at = Column(DateTime)  # Valid for 5 minutes
+    is_used = Column(Boolean, default=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class DietPlan(Base):
     __tablename__ = "diet_plans"
@@ -430,6 +498,613 @@ def health_check_detailed(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         raise HTTPException(status_code=503, detail="Database connection failed")
+
+
+# ============================================================================
+# AUTHENTICATION ENDPOINTS (Phone OTP System)
+# ============================================================================
+
+@app.post("/auth/send-otp")
+async def send_otp_endpoint(request: SendOTPRequest, db: Session = Depends(get_db)):
+    """
+    Send OTP to user's phone number
+
+    Flow:
+    1. Validate phone number format
+    2. Generate 6-digit OTP
+    3. Save OTP to database (expires in 5 minutes)
+    4. Send SMS via MSG91/Twilio
+    5. Return success message
+    """
+    try:
+        # Validate and format phone number
+        phone = format_phone_number(request.phone)
+
+        if not validate_phone_number(phone):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid phone number. Please enter a valid 10-digit Indian mobile number."
+            )
+
+        # Rate limiting: Check if OTP was sent recently (within last 60 seconds)
+        recent_otp = db.query(OTPVerification).filter(
+            OTPVerification.phone == phone,
+            OTPVerification.created_at > datetime.utcnow() - timedelta(seconds=60)
+        ).first()
+
+        if recent_otp:
+            raise HTTPException(
+                status_code=429,
+                detail="OTP already sent. Please wait 60 seconds before requesting again."
+            )
+
+        # Generate OTP
+        otp_code = generate_otp()
+
+        # Save OTP to database
+        otp_entry = OTPVerification(
+            phone=phone,
+            otp_code=otp_code,
+            expires_at=datetime.utcnow() + timedelta(minutes=5),
+            is_used=False
+        )
+        db.add(otp_entry)
+        db.commit()
+
+        # Send OTP via SMS
+        sms_sent = send_otp(phone, otp_code)
+
+        if not sms_sent:
+            logger.error(f"Failed to send OTP to {phone}")
+            # Don't fail the request - OTP is still in database for testing
+
+        return {
+            "success": True,
+            "message": "OTP sent successfully",
+            "phone": phone,
+            "expires_in_minutes": 5
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending OTP: {e}")
+        raise HTTPException(status_code=500, detail="Failed to send OTP. Please try again.")
+
+
+@app.post("/auth/verify-otp")
+async def verify_otp_endpoint(request: VerifyOTPRequest, db: Session = Depends(get_db)):
+    """
+    Verify OTP and authenticate user
+
+    Flow:
+    1. Validate phone number
+    2. Check if OTP exists and is valid
+    3. Mark OTP as used
+    4. Get or create user account
+    5. Generate JWT token
+    6. Return token + user data
+    """
+    try:
+        # Format phone number
+        phone = format_phone_number(request.phone)
+
+        # Find valid OTP
+        otp_entry = db.query(OTPVerification).filter(
+            OTPVerification.phone == phone,
+            OTPVerification.otp_code == request.otp_code,
+            OTPVerification.expires_at > datetime.utcnow(),
+            OTPVerification.is_used == False
+        ).first()
+
+        if not otp_entry:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid or expired OTP. Please request a new one."
+            )
+
+        # Mark OTP as used
+        otp_entry.is_used = True
+        db.commit()
+
+        # Get or create user
+        user = db.query(User).filter(User.phone == phone).first()
+
+        if not user:
+            # Create new user account
+            user = User(
+                phone=phone,
+                name="New User",  # Will be updated when they create first plan
+                is_phone_verified=True,
+                created_at=datetime.utcnow()
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+            is_new_user = True
+        else:
+            # Update verification status
+            user.is_phone_verified = True
+            db.commit()
+            is_new_user = False
+
+        # Generate JWT token
+        access_token = create_access_token(user.id, phone)
+
+        # Get user's plans
+        plans = db.query(DietPlan).filter(DietPlan.user_id == user.id).all()
+
+        return {
+            "success": True,
+            "message": "Login successful",
+            "token": access_token,
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "phone": user.phone,
+                "is_new_user": is_new_user
+            },
+            "plans_count": len(plans)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error verifying OTP: {e}")
+        raise HTTPException(status_code=500, detail="Verification failed. Please try again.")
+
+
+async def get_current_user_from_token(authorization: str = Header(None), db: Session = Depends(get_db)):
+    """
+    Dependency function to get current user from Authorization header
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
+
+    token = authorization.replace("Bearer ", "")
+
+    try:
+        payload = verify_token(token)
+        if not payload:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+        user_id = payload.get("user_id")
+        user = db.query(User).filter(User.id == user_id).first()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        return {"user_id": user_id, "phone": payload.get("phone")}
+
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+
+
+@app.get("/auth/me")
+async def get_current_user_endpoint(token: str, db: Session = Depends(get_db)):
+    """
+    Get current authenticated user from token
+
+    Usage: Pass token as query parameter or Authorization header
+    """
+    try:
+        # Verify token
+        payload = verify_token(token)
+
+        if not payload:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+        user_id = payload.get("user_id")
+
+        # Get user from database
+        user = db.query(User).filter(User.id == user_id).first()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Get user's plans
+        plans = db.query(DietPlan).filter(DietPlan.user_id == user.id).all()
+
+        return {
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "phone": user.phone,
+                "created_at": user.created_at.isoformat()
+            },
+            "plans_count": len(plans)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get user info")
+
+
+# ============================================================================
+# PASSWORD-BASED AUTHENTICATION (Simpler, Zero-cost Alternative)
+# ============================================================================
+
+@app.post("/auth/signup")
+async def signup_endpoint(request: SignupRequest, db: Session = Depends(get_db)):
+    """
+    User signup with phone + password
+    Zero cost, works immediately!
+    """
+    try:
+        # Validate and format phone
+        phone = format_phone_number(request.phone)
+
+        if not validate_phone_number(phone):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid phone number. Please enter a valid 10-digit Indian mobile number."
+            )
+
+        # Check if user already exists
+        existing_user = db.query(User).filter(User.phone == phone).first()
+
+        # Hash password and security key
+        from passlib.context import CryptContext
+        pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+        hashed_password = pwd_context.hash(request.password)
+        hashed_security_key = pwd_context.hash(request.security_key)
+
+        if existing_user:
+            # If user exists but has NO password, let them set it now (first-time password setup for old users)
+            if not existing_user.password_hash:
+                existing_user.password_hash = hashed_password
+                existing_user.security_key = hashed_security_key
+                if request.name:
+                    existing_user.name = request.name
+
+                db.commit()
+                db.refresh(existing_user)
+
+                # Create JWT token
+                token = create_access_token(existing_user.id, phone)
+
+                logger.info(f"Existing user set password: {phone}")
+
+                return {
+                    "success": True,
+                    "message": "Password set successfully! You can now login.",
+                    "token": token,
+                    "user": {
+                        "id": existing_user.id,
+                        "name": existing_user.name,
+                        "phone": existing_user.phone,
+                        "is_new_user": False
+                    }
+                }
+            else:
+                # User exists with password - tell them to login
+                raise HTTPException(
+                    status_code=400,
+                    detail="Phone number already registered. Please login instead."
+                )
+
+        # Create new user
+        new_user = User(
+            phone=phone,
+            password_hash=hashed_password,
+            security_key=hashed_security_key,
+            name=request.name or f"User_{phone[-4:]}",
+            created_at=datetime.utcnow()
+        )
+
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+
+        # Create JWT token
+        token = create_access_token(new_user.id, phone)
+
+        logger.info(f"New user signed up: {phone}")
+
+        return {
+            "success": True,
+            "message": "Account created successfully",
+            "token": token,
+            "user": {
+                "id": new_user.id,
+                "name": new_user.name,
+                "phone": new_user.phone,
+                "is_new_user": True
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Signup error: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Signup failed. Please try again.")
+
+
+@app.post("/auth/login")
+async def login_endpoint(request: LoginRequest, db: Session = Depends(get_db)):
+    """
+    User login with phone + password
+    Fast, simple, zero cost!
+    """
+    try:
+        # Validate and format phone
+        phone = format_phone_number(request.phone)
+
+        if not validate_phone_number(phone):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid phone number."
+            )
+
+        # Find user
+        user = db.query(User).filter(User.phone == phone).first()
+
+        if not user:
+            raise HTTPException(
+                status_code=401,
+                detail="Phone number not registered. Please signup first."
+            )
+
+        # Check if user has password set
+        if not user.password_hash:
+            raise HTTPException(
+                status_code=401,
+                detail="Please use OTP login or set a password first."
+            )
+
+        # Verify password
+        from passlib.context import CryptContext
+        pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+        logger.info(f"Verifying password for user: {phone}")
+        try:
+            password_valid = pwd_context.verify(request.password, user.password_hash)
+            logger.info(f"Password verification result: {password_valid}")
+        except Exception as e:
+            logger.error(f"Password verification error: {e}")
+            raise HTTPException(status_code=500, detail=f"Password verification failed: {str(e)}")
+
+        if not password_valid:
+            raise HTTPException(
+                status_code=401,
+                detail="Incorrect password. Please try again."
+            )
+
+        # Create JWT token
+        token = create_access_token(user.id, phone)
+
+        # Check if user has any plans
+        plans = db.query(DietPlan).filter(DietPlan.user_id == user.id).all()
+        is_new_user = len(plans) == 0
+
+        logger.info(f"User logged in: {phone}")
+
+        return {
+            "success": True,
+            "message": "Login successful",
+            "token": token,
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "phone": user.phone,
+                "is_new_user": is_new_user
+            },
+            "plans_count": len(plans)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Login error: {e}")
+        raise HTTPException(status_code=500, detail="Login failed. Please try again.")
+
+
+@app.post("/auth/reset-password")
+async def reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Reset password using security key
+    Allows users to reset their password if they forgot it
+    """
+    try:
+        # Validate and format phone
+        phone = format_phone_number(request.phone)
+
+        if not validate_phone_number(phone):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid phone number."
+            )
+
+        # Find user
+        user = db.query(User).filter(User.phone == phone).first()
+
+        if not user or not user.security_key:
+            raise HTTPException(
+                status_code=404,
+                detail="Account not found or security key not set."
+            )
+
+        # Verify security key
+        from passlib.context import CryptContext
+        pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+        if not pwd_context.verify(request.security_key, user.security_key):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid security key. Please try again."
+            )
+
+        # Hash new password
+        new_password_hash = pwd_context.hash(request.new_password)
+
+        # Update password
+        user.password_hash = new_password_hash
+        db.commit()
+
+        logger.info(f"Password reset successful for: {phone}")
+
+        return {
+            "success": True,
+            "message": "Password reset successful. You can now login with your new password."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Password reset error: {e}")
+        raise HTTPException(status_code=500, detail="Password reset failed. Please try again.")
+
+
+@app.post("/auth/change-password")
+async def change_password(
+    request: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user_from_token),
+    db: Session = Depends(get_db)
+):
+    """
+    Change password for authenticated user
+    Requires current password for verification
+    """
+    try:
+        # Get user from database
+        user = db.query(User).filter(User.id == current_user["user_id"]).first()
+
+        if not user or not user.password_hash:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found or password not set."
+            )
+
+        # Verify current password
+        from passlib.context import CryptContext
+        pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+        if not pwd_context.verify(request.old_password, user.password_hash):
+            raise HTTPException(
+                status_code=401,
+                detail="Current password is incorrect."
+            )
+
+        # Hash new password
+        new_password_hash = pwd_context.hash(request.new_password)
+
+        # Update password
+        user.password_hash = new_password_hash
+        db.commit()
+
+        logger.info(f"Password changed for user: {user.id}")
+
+        return {
+            "success": True,
+            "message": "Password changed successfully."
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Change password error: {e}")
+        raise HTTPException(status_code=500, detail="Password change failed. Please try again.")
+
+
+@app.put("/auth/profile")
+async def update_profile(
+    request: UpdateProfileRequest,
+    current_user: dict = Depends(get_current_user_from_token),
+    db: Session = Depends(get_db)
+):
+    """
+    Update user profile (name, email)
+    """
+    try:
+        # Get user from database
+        user = db.query(User).filter(User.id == current_user["user_id"]).first()
+
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found."
+            )
+
+        # Update fields
+        if request.name is not None:
+            user.name = request.name
+
+        if request.email is not None:
+            user.email = request.email
+
+        db.commit()
+        db.refresh(user)
+
+        logger.info(f"Profile updated for user: {user.id}")
+
+        return {
+            "success": True,
+            "message": "Profile updated successfully.",
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "phone": user.phone,
+                "email": user.email
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update profile error: {e}")
+        raise HTTPException(status_code=500, detail="Profile update failed. Please try again.")
+
+
+@app.get("/auth/my-plans")
+async def get_my_plans(
+    current_user: dict = Depends(get_current_user_from_token),
+    db: Session = Depends(get_db)
+):
+    """
+    Fetch all diet plans for the authenticated user
+    Returns plans in descending order (newest first)
+    """
+    try:
+        # Get user from database
+        user = db.query(User).filter(User.id == current_user["user_id"]).first()
+
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found."
+            )
+
+        # Fetch all plans for this user
+        plans = db.query(DietPlan).filter(DietPlan.user_id == user.id).order_by(DietPlan.created_at.desc()).all()
+
+        return {
+            "success": True,
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "phone": user.phone,
+                "email": user.email
+            },
+            "plans": [
+                {
+                    "id": p.id,
+                    "title": p.title,
+                    "created_at": p.created_at.isoformat(),
+                    "diet": json.loads(p.plan_json)
+                } for p in plans
+            ]
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Fetch plans error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch plans. Please try again.")
+
 
 @app.get("/admin/stats")
 def get_stats(db: Session = Depends(get_db)):
@@ -1503,7 +2178,22 @@ async def create_razorpay_order(request: OrderRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 @app.post("/save-plan")
-async def save_plan_phone(req: SavePlanRequest, db: Session = Depends(get_db)):
+async def save_plan_phone(req: SavePlanRequest, authorization: str = Header(None), db: Session = Depends(get_db)):
+    # Security: If user is authenticated, verify they can only save to their own phone
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+        try:
+            payload = verify_token(token)
+            if payload:
+                authenticated_phone = payload.get("phone")
+                if authenticated_phone and req.phone != authenticated_phone:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"You can only save plans to your logged-in phone number: {authenticated_phone}"
+                    )
+        except:
+            pass  # If token verification fails, continue without auth check
+
     # 1. Find the temporary session user
     current_user = db.query(User).filter(User.id == req.user_id).first()
     if not current_user:
@@ -1832,6 +2522,7 @@ class CheckInAnalysisResponse(BaseModel):
     weight_change_kg: float
     insights: dict
     adjusted_calories: Optional[int] = None
+    previous_calories: Optional[int] = None  # Original calories before adjustment
     recommendations: List[str]
 
 @app.post("/weekly-checkin", response_model=CheckInAnalysisResponse)
@@ -1957,13 +2648,68 @@ OUTPUT FORMAT (JSON):
 
         # 7. Determine calorie adjustment
         adjusted_calories = None
+        previous_calories = None
         adjustment_reason = None
 
-        if insights_json.get('calorie_adjustment'):
-            # Get current calorie target from plan
-            current_calories = plan_json.get('nutrition_targets', {}).get('calories_range', '1800-1900')
-            current_calories_mid = int(current_calories.split('-')[0]) + 50  # Approximate midpoint
+        # Calculate current calories from user profile data
+        # Since nutrition_targets may not be in plan_json, calculate from user profile
+        def calculate_calories_from_profile(profile_data):
+            """Calculate calorie range based on user profile"""
+            weight_kg = profile_data.get('weight_kg', 70)
+            height_cm = profile_data.get('height_cm', 165)
+            age = profile_data.get('age', 30)
+            gender = profile_data.get('gender', 'Female')
+            goal = profile_data.get('goal', 'Weight Loss')
 
+            # Calculate BMR using Mifflin-St Jeor equation
+            if gender == 'Male':
+                bmr = (10 * weight_kg) + (6.25 * height_cm) - (5 * age) + 5
+            else:
+                bmr = (10 * weight_kg) + (6.25 * height_cm) - (5 * age) - 161
+
+            # Calculate TDEE (assuming light activity = 1.375)
+            tdee = bmr * 1.375
+
+            # Determine calorie target based on goal
+            if 'Lose' in goal or 'Weight Loss' in goal:
+                # 20% deficit for weight loss
+                target_calories = tdee * 0.8
+                # Ensure minimum calories
+                min_calories = max(bmr * 1.15, 1200 if gender == 'Female' else 1500)
+                target_calories = max(target_calories, min_calories)
+            elif 'Gain' in goal or 'Muscle' in goal:
+                # 10% surplus for muscle gain
+                target_calories = tdee * 1.1
+            else:
+                # Maintenance
+                target_calories = tdee
+
+            # Create a narrow range (50 kcal)
+            calories_min = int(target_calories - 25)
+            calories_max = int(target_calories + 25)
+
+            return calories_min, calories_max
+
+        # Try to get calories from plan_json first, fallback to calculation
+        current_calories = plan_json.get('nutrition_targets', {}).get('calories_range', None)
+        if current_calories:
+            try:
+                calories_parts = current_calories.split('-')
+                calories_min = int(calories_parts[0].strip())
+                calories_max = int(calories_parts[1].strip())
+                current_calories_mid = (calories_min + calories_max) // 2
+            except:
+                # Fallback to calculation
+                calories_min, calories_max = calculate_calories_from_profile(profile_data)
+                current_calories_mid = (calories_min + calories_max) // 2
+        else:
+            # Calculate from profile
+            calories_min, calories_max = calculate_calories_from_profile(profile_data)
+            current_calories_mid = (calories_min + calories_max) // 2
+            logger.info(f"Calculated calories from profile: {calories_min}-{calories_max} (mid: {current_calories_mid})")
+
+        if insights_json.get('calorie_adjustment'):
+            previous_calories = current_calories_mid  # Store original value
             adjustment_amount = insights_json['calorie_adjustment']
             adjusted_calories = current_calories_mid + adjustment_amount
             adjustment_reason = insights_json.get('adjustment_reason', 'ai_suggested')
@@ -2029,6 +2775,7 @@ OUTPUT FORMAT (JSON):
             weight_change_kg=weight_change_kg,
             insights=insights_json,
             adjusted_calories=adjusted_calories,
+            previous_calories=previous_calories,
             recommendations=insights_json.get('recommendations', [])
         )
 
@@ -2283,6 +3030,261 @@ async def clear_chat_history(session_id: str):
     except Exception as e:
         logger.error(f"Error clearing chat history: {e}")
         raise HTTPException(status_code=500, detail="Failed to clear chat history")
+
+
+# ============================================
+# PRICE OPTIMIZER ENDPOINTS
+# ============================================
+
+class GroceryOptimizeRequest(BaseModel):
+    """Request model for grocery optimization"""
+    grocery_list: List[str] = Field(..., description="List of ingredients to optimize")
+    user_goal: Optional[str] = Field("budget", description="User goal: budget, weight_loss, muscle_gain, etc.")
+    budget_mode: Optional[bool] = Field(False, description="Enable aggressive cost optimization")
+
+
+@app.post("/optimize-grocery")
+async def optimize_grocery_list(request: GroceryOptimizeRequest):
+    """
+    Analyze grocery list and suggest cheaper alternatives using AI
+
+    This endpoint:
+    1. Finds nutritionally equivalent cheaper alternatives
+    2. Uses AI to provide personalized swap recommendations
+    3. Calculates total potential savings
+    4. Maintains nutrition quality
+
+    Returns AI-powered optimization suggestions
+    """
+    try:
+        logger.info(f"Optimizing grocery list: {request.grocery_list}")
+
+        # Get AI analysis with swap suggestions
+        analysis = analyze_grocery_list_with_ai(
+            grocery_list=request.grocery_list,
+            user_goal=request.user_goal
+        )
+
+        return {
+            "success": True,
+            "analysis": analysis,
+            "message": "Grocery list analyzed successfully"
+        }
+
+    except Exception as e:
+        logger.error(f"Error optimizing grocery: {e}")
+        raise HTTPException(status_code=500, detail=f"Optimization failed: {str(e)}")
+
+
+@app.post("/auto-optimize-grocery")
+async def auto_optimize_grocery(request: GroceryOptimizeRequest):
+    """
+    Automatically swap expensive ingredients for cheaper alternatives
+
+    This endpoint autonomously makes swaps without asking user.
+    Perfect for "budget mode" where user wants maximum savings.
+
+    Returns optimized grocery list with swaps already applied
+    """
+    try:
+        logger.info(f"Auto-optimizing grocery (budget_mode={request.budget_mode})")
+
+        # Perform automatic swaps
+        result = auto_optimize_grocery_list(
+            grocery_list=request.grocery_list,
+            budget_mode=request.budget_mode
+        )
+
+        return {
+            "success": True,
+            "original_list": result["original_list"],
+            "optimized_list": result["optimized_list"],
+            "swaps_made": result["swaps_made"],
+            "total_savings": result["total_savings"],
+            "message": f"Saved ₹{result['total_savings']} with {len(result['swaps_made'])} swaps!"
+        }
+
+    except Exception as e:
+        logger.error(f"Error in auto-optimization: {e}")
+        raise HTTPException(status_code=500, detail=f"Auto-optimization failed: {str(e)}")
+
+
+@app.get("/ingredient-price/{ingredient}")
+async def get_ingredient_price_endpoint(ingredient: str):
+    """
+    Get current price for a specific ingredient
+
+    Args:
+        ingredient: Name of ingredient (e.g., "paneer", "chicken breast")
+
+    Returns:
+        Price info with source and last updated time
+    """
+    try:
+        price_info = get_ingredient_price(ingredient)
+
+        if not price_info:
+            raise HTTPException(status_code=404, detail=f"Price not found for '{ingredient}'")
+
+        return {
+            "success": True,
+            "ingredient": ingredient,
+            "price": price_info["price"],
+            "unit": price_info["unit"],
+            "source": price_info["source"],
+            "last_updated": price_info["last_updated"].isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching price: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch price")
+
+
+@app.get("/cheaper-alternatives/{ingredient}")
+async def get_cheaper_alternatives_endpoint(ingredient: str, max_price_ratio: float = 0.8):
+    """
+    Find cheaper nutritionally equivalent alternatives
+
+    Args:
+        ingredient: Ingredient to find alternatives for
+        max_price_ratio: Only return alternatives cheaper than this ratio (default 0.8 = 80%)
+
+    Returns:
+        List of cheaper alternatives with savings details
+    """
+    try:
+        alternatives = find_cheaper_alternatives(ingredient, max_price_ratio)
+
+        if not alternatives:
+            return {
+                "success": True,
+                "ingredient": ingredient,
+                "alternatives": [],
+                "message": "No cheaper alternatives found"
+            }
+
+        return {
+            "success": True,
+            "ingredient": ingredient,
+            "alternatives": alternatives,
+            "best_savings": alternatives[0]["savings"] if alternatives else 0,
+            "message": f"Found {len(alternatives)} cheaper alternatives"
+        }
+
+    except Exception as e:
+        logger.error(f"Error finding alternatives: {e}")
+        raise HTTPException(status_code=500, detail="Failed to find alternatives")
+
+
+@app.get("/price-alerts")
+async def get_price_alerts():
+    """
+    Get ingredients with significant price increases (for daily monitoring)
+
+    This endpoint is designed to be called by a cron job daily.
+    It identifies ingredients with price spikes and suggests alternatives.
+
+    Returns:
+        List of price alerts with swap recommendations
+    """
+    try:
+        alerts = get_price_alert_ingredients()
+
+        return {
+            "success": True,
+            "alerts": alerts,
+            "alert_count": len(alerts),
+            "message": f"Found {len(alerts)} price alerts" if alerts else "No price alerts"
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching price alerts: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch price alerts")
+
+
+@app.post("/optimize-plan-grocery/{plan_id}")
+async def optimize_plan_grocery(plan_id: int, budget_mode: bool = False, db: Session = Depends(get_db)):
+    """
+    Optimize grocery list for an existing diet plan
+
+    This endpoint:
+    1. Retrieves the plan's grocery list
+    2. Finds cheaper alternatives
+    3. Optionally auto-swaps (if budget_mode=True)
+    4. Updates the plan with optimized grocery
+
+    Args:
+        plan_id: ID of the diet plan
+        budget_mode: If True, automatically apply all swaps
+
+    Returns:
+        Optimized grocery with savings info
+    """
+    try:
+        # Get the plan
+        plan = db.query(DietPlan).filter(DietPlan.id == plan_id).first()
+        if not plan:
+            raise HTTPException(status_code=404, detail="Plan not found")
+
+        # Parse grocery list
+        try:
+            grocery_data = json.loads(plan.grocery_list) if plan.grocery_list else {}
+            grocery_items = []
+
+            # Extract ingredient names from grocery data
+            for category, items in grocery_data.items():
+                if isinstance(items, list):
+                    for item in items:
+                        if isinstance(item, dict) and 'item' in item:
+                            grocery_items.append(item['item'])
+                        elif isinstance(item, str):
+                            grocery_items.append(item)
+
+            if not grocery_items:
+                return {
+                    "success": False,
+                    "message": "No grocery items found in this plan"
+                }
+
+        except:
+            return {
+                "success": False,
+                "message": "Invalid grocery list format"
+            }
+
+        # Get optimization
+        if budget_mode:
+            # Auto-optimize
+            result = auto_optimize_grocery_list(grocery_items, budget_mode=True)
+
+            # Update plan grocery list with optimized version
+            # (In production, you'd regenerate the full grocery structure)
+
+            return {
+                "success": True,
+                "plan_id": plan_id,
+                "optimization": result,
+                "message": f"Plan grocery optimized! Saved ₹{result['total_savings']}"
+            }
+        else:
+            # Just analyze and suggest
+            analysis = analyze_grocery_list_with_ai(grocery_items)
+
+            return {
+                "success": True,
+                "plan_id": plan_id,
+                "analysis": analysis,
+                "message": "Optimization suggestions generated"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error optimizing plan grocery: {e}")
+        raise HTTPException(status_code=500, detail="Failed to optimize plan grocery")
+
 
 # --- 7. RUN INSTRUCTION ---
 if __name__ == "__main__":

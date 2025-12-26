@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ShoppingBag, ArrowLeft, ExternalLink, Rocket, Download, TrendingUp, AlertTriangle, Sparkles, Info, X, Check, Store, Package, Clock, Users, MapPin, ShoppingCart, Percent } from 'lucide-react';
+import { ShoppingBag, ArrowLeft, ExternalLink, Rocket, Download, TrendingUp, AlertTriangle, Sparkles, Info, X, Check, Store, Package, Clock, Users, MapPin, ShoppingCart, Percent, DollarSign } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
 import toast from 'react-hot-toast';
 import { useState } from 'react';
@@ -109,13 +109,25 @@ export default function Grocery() {
             </div>
           </div>
 
-          {/* Download PDF Button */}
-          <button
-            onClick={handleDownloadPDF}
-            className="bg-green-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center hover:bg-green-700 transition-all duration-300 shadow-md hover:shadow-lg"
-          >
-            <Download size={18} className="mr-2"/> Download PDF
-          </button>
+          {/* Action Buttons */}
+          <div className="flex gap-3">
+            {/* Price Optimizer Button */}
+            <button
+              onClick={() => navigate('/price-optimizer')}
+              className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center hover:from-purple-700 hover:to-pink-700 transition-all duration-300 shadow-md hover:shadow-lg"
+              title="Optimize grocery prices and find cheaper alternatives"
+            >
+              <DollarSign size={18} className="mr-2"/> Price Optimizer
+            </button>
+
+            {/* Download PDF Button */}
+            <button
+              onClick={handleDownloadPDF}
+              className="bg-green-600 text-white px-4 py-2.5 rounded-xl font-bold flex items-center hover:bg-green-700 transition-all duration-300 shadow-md hover:shadow-lg"
+            >
+              <Download size={18} className="mr-2"/> Download PDF
+            </button>
+          </div>
         </div>
 
         {/* NEW: SMART FEATURES - Quick Access Cards */}
